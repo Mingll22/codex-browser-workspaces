@@ -14,6 +14,10 @@ This document distinguishes automated checks, real browser fixtures and real Cod
 
 The tests above do not establish all-platform compatibility, arbitrary-browser-restart recovery, every website, multiple real CLI conversations on the latest adapter version, or OS-native print/save/certificate dialogs. New installations must confirm that their Codex calls supply the required metadata and both loopback directions are reachable.
 
+## Public-source packaging verification
+
+The initial public source adds one archive/install regression, bringing `npm test` to 68 checks. It exercises packaging, credential/private-document exclusion and installation with relative dependency links, then removes the source and extraction directories before executing the installed fixture. This addresses a portability issue found during clean-checkout preparation; it does not replace the original real-browser evidence above.
+
 ## Running checks
 
 ```bash

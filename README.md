@@ -49,7 +49,7 @@ An allowlist forwards 19 official page tools for navigation, snapshots, screensh
 
 ## Validation and limitations
 
-The 0.3.1 baseline has 67 automated checks and real Windows Chrome screenshot/cancellation evidence. Latest-version multi-client browser tests use explicitly synthetic fixture identities; they are not presented as multiple real Codex sessions. See [acceptance](docs/ACCEPTANCE.md) for the exact evidence and untested boundaries.
+The current public source has 68 automated checks, including portable archive installation. The original runtime baseline had 67 checks plus real Windows Chrome screenshot/cancellation evidence. Latest-version multi-client browser tests use explicitly synthetic fixture identities; they are not presented as multiple real Codex sessions. See [acceptance](docs/ACCEPTANCE.md) for the exact evidence and untested boundaries.
 
 The official backend is pinned to `chrome-devtools-mcp@1.11.0`. Build-time patches are checked against exact source anchors and fail on an unreviewed version. Native Linux/macOS Chrome, generic MCP clients and recovery of arbitrary page state after a complete browser restart are not claimed.
 

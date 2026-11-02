@@ -26,7 +26,7 @@ npm test
 
 接着按[安装说明](docs/INSTALL.md)加载扩展、启动 broker 并登记 MCP。构建不会自动修改全局配置。Chrome 必须事先启用远程调试；现代 Chrome 对默认个人 profile 的远程调试有限制，因此不能理解为可接管任意已经打开的浏览器。请参阅[官方连接文档](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md)。
 
-0.3.1 基线包含 67 项自动化检查，以及真实 Windows Chrome 的最小化截图与取消恢复验证。验证范围与限制见[验收记录](docs/ACCEPTANCE.md)。官方后端固定为 1.11.0，本地补丁见[UPSTREAM.md](docs/UPSTREAM.md)。
+当前公开源码包含 68 项自动化检查，其中一项覆盖可移植归档安装。原 0.3.1 运行基线包含 67 项检查，以及真实 Windows Chrome 的最小化截图与取消恢复验证。验证范围与限制见[验收记录](docs/ACCEPTANCE.md)。官方后端固定为 1.11.0，本地补丁见[UPSTREAM.md](docs/UPSTREAM.md)。
 
 ## 许可
 
