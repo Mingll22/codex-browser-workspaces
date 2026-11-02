@@ -16,7 +16,7 @@ let previous=null;
 try{await stat(destination);previous=destination+'-backup-'+stamp;}catch(e){if(e.code!=='ENOENT')throw e;}
 const staging=destination+'-staging-'+stamp;
 await mkdir(staging,{recursive:true,mode:0o700});
-for(const path of ['dist','node_modules','package.json','package-lock.json','scripts','docs'])await cp(join(source,path),join(staging,path),{recursive:true,verbatimSymlinks:true});
+for(const path of ['dist','node_modules','package.json','package-lock.json','scripts','docs','LICENSE','NOTICE','README.md','README.zh-CN.md','CONTRIBUTING.md'])await cp(join(source,path),join(staging,path),{recursive:true,verbatimSymlinks:true});
 await mkdir(stateDir,{recursive:true,mode:0o700});
 const configPath=join(stateDir,'config.json');
 let config;

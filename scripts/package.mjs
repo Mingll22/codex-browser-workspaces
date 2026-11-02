@@ -4,7 +4,7 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const stage=root+'/.artifacts/release';await rm(stage,{recursive:true,force:true});await mkdir(stage,{recursive:true,mode:0o700});
-for(const path of ['dist','node_modules','package.json','package-lock.json','README.md'])await cp(root+'/'+path,stage+'/'+path,{recursive:true,verbatimSymlinks:true});
+for(const path of ['dist','node_modules','package.json','package-lock.json','README.md','README.zh-CN.md','CONTRIBUTING.md'])await cp(root+'/'+path,stage+'/'+path,{recursive:true,verbatimSymlinks:true});
 await mkdir(stage+'/docs',{recursive:true});
 for(const name of ['INSTALL.md','ARCHITECTURE.md','UPSTREAM.md','ACCEPTANCE.md','COMPARISON.md']){
  const source=root+'/docs/'+name;
