@@ -1,0 +1,30 @@
+node_modules/
+dist/
+.artifacts/
+*.tgz
+*.tar.gz
+*.log
+.env
+.env.*
+!.env.example
+__pycache__/
+
+# Machine-specific operating notes stay local.
+/AGENTS.md
+/docs/HANDOFF.md
+/docs/ADMIN_HANDOFF.md
+/docs/ADMIN_INTEGRATION.md
+/docs/ENVIRONMENT.md
+/docs/PROGRESS.md
+
+# Historical one-off diagnostics are retained locally, not part of the product.
+/scripts/p0-*
+/scripts/run-p0-cli.py
+/scripts/run-tui-probe.py
+/scripts/debug-popup.mjs
+/scripts/inspect-popup-lineage.mjs
+/scripts/read-popup-target.mjs
+/scripts/inspect-extension.mjs
+/scripts/read-owned-window.mjs
+/scripts/finish-browser-tests.mjs
+/scripts/title-sync.mjs

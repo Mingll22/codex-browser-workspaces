@@ -1,0 +1,37 @@
+{
+  "name": "codex-browser-workspaces",
+  "version": "0.3.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.22"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/build-extension.mjs && node scripts/patch-upstream.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "broker": "node dist/adapter/src/broker.js",
+    "mcp": "node dist/adapter/src/stdio.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ajv": "8.20.0",
+    "chrome-devtools-mcp": "1.11.0",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.15",
+    "@types/ws": "8.18.1",
+    "typescript": "5.9.3"
+  },
+  "description": "Thread-owned Chrome tab groups for Codex CLI, built on official Chrome DevTools MCP",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mingll22/codex-browser-workspaces.git"
+  },
+  "homepage": "https://github.com/Mingll22/codex-browser-workspaces",
+  "bugs": {
+    "url": "https://github.com/Mingll22/codex-browser-workspaces/issues"
+  },
+  "author": "Mingll22"
+}

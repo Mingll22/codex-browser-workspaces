@@ -1,0 +1,11 @@
+Codex Browser Workspaces
+Copyright 2026 Mingll22
+
+This project uses chrome-devtools-mcp, Copyright Google LLC, under Apache-2.0.
+The upstream package is installed as a dependency, copied at build time, and
+modified by scripts/patch-upstream.mjs. Original copyright and license notices
+are retained in the copied package. See docs/UPSTREAM.md for the changes.
+Other dependencies retain their respective licenses.
+
+Codex and Chrome are names of their respective owners. This is an independent
+community project, not an official OpenAI or Google product.
