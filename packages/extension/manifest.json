@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Codex Browser Workspaces",
+  "version": "0.3.1",
+  "minimum_chrome_version": "120",
+  "description": "Thread-owned browser tabs for the local Codex workspace broker.",
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "debugger",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  }
+}
