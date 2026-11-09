@@ -1,4 +1,6 @@
-// Explicit real-Chrome integration using synthetic, disposable protocol identities.
+// HISTORICAL 0.3.x integration. Its synthetic identities and permanent-revocation
+// assertions predate 0.4's registered root families/current-group membership.
+// The 0.4 checks are extension-membership.test.mjs and docs/ACCEPTANCE.md.
 // All browser operations go through the official Chrome DevTools MCP, including
 // fixture lifecycle in our own extension worker. Never use an existing thread ID.
 import assert from 'node:assert/strict';
@@ -11,19 +13,22 @@ const [anchor,configPath,outputPath]=process.argv.slice(2);
 assert.match(anchor??'',/^[A-F0-9]{32}$/);
 assert.ok(configPath&&outputPath,'Pass owned anchor target, broker config and output JSON path');
 const config=JSON.parse(await readFile(configPath,'utf8'));
+const baseline=await (await fetch(config.pairing.url.replace('ws:','http:')+'/health')).json();
+assert.match(baseline.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: this 0.3 group-reuse harness cannot run on 0.4; use the current acceptance matrix');
 const evidence={layer:'real Chrome + installed broker; synthetic fixture thread IDs, not new CLI sessions',checks:[]};
 const pass=name=>{evidence.checks.push(name);console.log('PASS',name);};
 function connection(){
  const id=randomUUID(),rpc=new Rpc(config.socket);
+ const ready=rpc.call('hello',{cwd:process.cwd(),version:'fixture'});
  const meta={threadId:id,'x-codex-turn-metadata':{thread_id:id,codex_version:'fixture'}};
- return {id,rpc,async call(name,args={}){const r=await rpc.call('call',{name,args,meta});if(r.isError)throw Error(JSON.stringify(r));return r;},async json(name,args={}){return JSON.parse((await this.call(name,args)).content[0].text);}};
+ return {id,rpc,async call(name,args={}){await ready;const r=await rpc.call('call',{name,args,meta});if(r.isError)throw Error(JSON.stringify(r));return r;},async json(name,args={}){return JSON.parse((await this.call(name,args)).content[0].text);}};
 }
 const a=connection(),b=connection();
 evidence.fixtureThreads=[a.id,b.id];
 let ext;
 const receipts=[];
 const fixtureURL=config.pairing.url.replace('ws:','http:')+'/health';
-const targetOf=p=>p.pageId.split(':').at(-1);
+const targetOf=p=>p.pageId.split(':')[2];
 async function receipt(page){
  const r=await ext.evaluate(`async()=>{
  const target=(await chrome.debugger.getTargets()).find(t=>t.id===${JSON.stringify(targetOf(page))});

@@ -15,7 +15,7 @@
 
 ## 对 Codex 暴露的工具
 
-自有 5 个：`open_page`、`list_pages`、`close_page`、`set_page_retention`、`reset_workspace`。
+自有 8 个：`open_page`、`list_pages`、`get_active_tab`、`move_tab_to_workspace`、`release_page`、`close_page`、`set_page_retention`、`reset_workspace`。
 
 审查后转发 19 个：
 
@@ -26,7 +26,9 @@ list_network_requests get_network_request list_console_messages get_console_mess
 upload_file
 ```
 
-所有转发工具要求显式 owned pageId。元素、reqid 和 msgid 绑定该页及上游连接代次，旧连接引用不得被新连接中的相同数字复用。返回上游文本/图片，移除未转换的 structuredContent 数字 ID 副本。
+所有转发工具要求当前真实组成员的显式 pageId，并在 Broker 原子领取/续租五分钟。元素、reqid 和 msgid 绑定稳定 target、成员代际、租约授予版本及上游连接代次；旧成员、旧授予和旧连接引用不能复用。list_pages 的 position 在完整真实组排序后再做租约过滤，不是操作 ID。返回上游文本/图片，移除未转换的 structuredContent 数字 ID 副本。
+
+上游启动使用官方 `--categoryExtensions`，允许已授权的扩展管理页面通过上述页面工具访问；仍须使用 owned pageId。映射合并官方 `pages` 与 `extensionPages` 数组，并仅保留请求所属 targetId。两个字段均未出现表示发现尚未完成，沿既有有界等待继续查询；字段存在但不是数组则明确报契约错误。该选项不增加对外工具，扩展管理工具和 `serviceWorkerId` 继续不向 Codex 暴露，不修改官方 URL 校验。构建补丁关闭页面列表自动附带的扩展 worker 清单，因为页面所有权不授予 worker 访问权。
 
 不暴露 `new_page/select_page`、`resize_page`、performance 全局 trace、Lighthouse、PWA、extension/worker 管理、WebMCP、heap 管理或未审查的新工具。`serviceWorkerId` 和直接 `filePath` 输出参数从公共 schema 删除；不能通过这些参数跳到其他 worker 或写出未适配的引用文件。上传由项目适配器在 WSL 中先转换 Windows 输入路径、校验 canonical path 所属 roots、打开并验证普通文件可读，然后用 wslpath 转换为 Windows Chrome 路径。支持 Windows 盘符路径、/mnt 路径和 WSL 原生路径；后者使用 WSL 的 Windows UNC 路径，不复制文件、不扩大 roots。文件选择成功不代表业务提交成功。
 
@@ -56,3 +58,9 @@ upload_file
 `scripts/upstream-capture.mjs` 在官方截图 handler 的同一 CDP session 查询 `Browser.getWindowForTarget`，仅最小化时临时开启 1x1 screencast 维持产帧。仍通过官方 page/element.screenshot 生成图片；async disposer 在成功、失败后被等待，取消通过同一个 stop Promise 清理。没有窗口恢复、bringToFront、启动参数修改或未知错误降级。
 
 构建修改的上游文件保留其原版权与 Apache-2.0 声明，并标明本项目作过修改。自有代码同样采用 Apache-2.0。见根目录 LICENSE、NOTICE。
+
+## 开发与管理脚本边界
+
+正式 Broker 只透传上述页面 allowlist，不开放 extension/worker 管理。源码中的 extension-test-client.mjs 是显式安装/回滚的管理辅助：通过固定官方 MCP 与显式 target 元数据适配查找经验证的 anchor target 与固定项目扩展 ID，仅向该 worker 执行精确状态收据操作；不把管理工具暴露给模型页面工具。0.4 升级先导出全部真实组成员，纯计划器将历史 spawn 归属归根；多真实组冲突停止，不按同名组认领。加载和回滚都重新比较完整 tab/target/group/window 收据。
+
+管理/测试入口的 upstream-target-metadata.mjs 只将官方 page 对象的 targetId 加入返回元数据；同 URL 按 page.id 精确映射，不修改工具 handler、不授予页面权限。固定 1.11.0 与三个精确结构锚点在构建和入口启动时校验。它只由显式管理/fixture客户端 preload，正式 Broker 仍使用 scope 限定的 dist/upstream；未修改 node_modules。

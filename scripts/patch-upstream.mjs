@@ -2,6 +2,7 @@ import {cp,readFile,writeFile,mkdir} from 'node:fs/promises';
 const source=new URL('../node_modules/chrome-devtools-mcp/',import.meta.url);
 const dest=new URL('../dist/upstream/',import.meta.url);
 const pkg=JSON.parse(await readFile(new URL('package.json',source),'utf8'));
+await import('./upstream-target-metadata.mjs'); // Validate the explicit admin metadata adapter too.
 if(pkg.version!=='1.11.0')throw new Error('Unreviewed upstream version: '+pkg.version);
 await mkdir(dest,{recursive:true});
 await cp(source,dest,{recursive:true});
@@ -49,6 +50,7 @@ await patchFile('build/src/tools/screenshot.js',[
  ['                __disposeResources(env_1);', '                await __disposeResources(env_1);']
 ]);
 await patchFile('build/src/McpResponse.js',[
+ ['            this.#includeExtensionServiceWorkers = value;', '            this.#includeExtensionServiceWorkers = false; // Page ownership never grants access to extension workers.'],
  ['        id: mcpPage.id,\n        url: mcpPage.url(),','        id: mcpPage.id,\n        targetId: mcpPage.targetId,\n        url: mcpPage.url(),'],
  ['        if (dialog) {','        if (dialog && !dialog.handled) {']
 ]);

@@ -1,9 +1,14 @@
+// HISTORICAL 0.3.x only: replays old CLI fixture identities, restarts a dedicated
+// test broker and asserts the former detached-TTL/permanent-revocation model.
+// It must not run against a 0.4 candidate. Use docs/ACCEPTANCE.md's current matrix.
 import assert from 'node:assert/strict';
 import {readFile,writeFile} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {Rpc} from '../dist/adapter/src/rpc.js';
 import {extensionTestClient} from '../scripts/extension-test-client.mjs';
 const config=JSON.parse(await readFile('.artifacts/dev-config.json','utf8'));
+const baseline=await (await fetch(config.pairing.url.replace('ws:','http:')+'/health')).json();
+assert.match(baseline.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: lifecycle assertions apply only to 0.3; use the 0.4 acceptance matrix');
 const id=async n=>(await readFile(`.artifacts/acceptance-${n}-cli.jsonl`,'utf8')).trim().split('\n').map(JSON.parse).find(x=>x.type==='thread.started').thread_id;
 const aId=await id('a'),bId=await id('b');
 const meta=threadId=>({threadId,'x-codex-turn-metadata':{thread_id:threadId,codex_version:'0.162.1'}});
@@ -15,15 +20,15 @@ const root='http://127.0.0.1:19228';
 try{
  for(const c of [a,b]){try{for(const p of (await c.json('list_pages')).pages)await c.call('close_page',{pageId:p.pageId});}catch(e){if(!e.message.includes('WORKSPACE_RESTORE_REQUIRED'))throw e;await c.call('reset_workspace',{acknowledgeLostPages:true});}}
  const pa=await a.json('open_page',{url:root+'/lifecycle-a'}),pb=await b.json('open_page',{url:root+'/lifecycle-b'});
- ext=await extensionTestClient(pa.pageId.split(':').at(-1));
- const receipt=await ext.evaluate(`async()=>{const targets=await chrome.debugger.getTargets();const a=targets.find(t=>t.id===${JSON.stringify(pa.pageId.split(':').at(-1))});const b=targets.find(t=>t.id===${JSON.stringify(pb.pageId.split(':').at(-1))});const tabs=await Promise.all([chrome.tabs.get(a.tabId),chrome.tabs.get(b.tabId)]);return {a:a.tabId,b:b.tabId,groupA:tabs[0].groupId,groupB:tabs[1].groupId,active:(await chrome.tabs.query({active:true,currentWindow:true})).map(t=>t.id),titles:await Promise.all(tabs.map(t=>chrome.tabGroups.get(t.groupId).then(g=>g.title)))}}`);
+ ext=await extensionTestClient(pa.pageId.split(':')[2]);
+ const receipt=await ext.evaluate(`async()=>{const targets=await chrome.debugger.getTargets();const a=targets.find(t=>t.id===${JSON.stringify(pa.pageId.split(':')[2])});const b=targets.find(t=>t.id===${JSON.stringify(pb.pageId.split(':')[2])});const tabs=await Promise.all([chrome.tabs.get(a.tabId),chrome.tabs.get(b.tabId)]);return {a:a.tabId,b:b.tabId,groupA:tabs[0].groupId,groupB:tabs[1].groupId,active:(await chrome.tabs.query({active:true,currentWindow:true})).map(t=>t.id),titles:await Promise.all(tabs.map(t=>chrome.tabGroups.get(t.groupId).then(g=>g.title)))}}`);
  assert.notEqual(receipt.groupA,receipt.groupB);assert.equal(receipt.titles[0],receipt.titles[1]);pass('same titles still produce distinct groups');
  await ext.evaluate(`async()=>{await chrome.tabs.ungroup(${receipt.a});return true}`);
  assert.equal((await a.json('list_pages')).pages.length,0);await assert.rejects(a.call('take_snapshot',{pageId:pa.pageId}),/PAGE_NOT_OWNED/);
  await ext.evaluate(`async()=>{await chrome.tabs.group({tabIds:${receipt.a},groupId:${receipt.groupB}});return true}`);
  assert.equal((await b.json('list_pages')).pages.length,1);await assert.rejects(b.call('take_snapshot',{pageId:pa.pageId}),/PAGE_NOT_OWNED/);pass('moving out revokes access; moving into another workspace never transfers ownership');
  // Cleanup only the exact tab moved by this test, checked against its original target receipt.
- await ext.evaluate(`async()=>{const t=(await chrome.debugger.getTargets()).find(t=>t.id===${JSON.stringify(pa.pageId.split(':').at(-1))});if(t?.tabId!==${receipt.a})throw Error('TEST_TARGET_CHANGED');await chrome.tabs.remove(t.tabId);return true}`);
+ await ext.evaluate(`async()=>{const t=(await chrome.debugger.getTargets()).find(t=>t.id===${JSON.stringify(pa.pageId.split(':')[2])});if(t?.tabId!==${receipt.a})throw Error('TEST_TARGET_CHANGED');await chrome.tabs.remove(t.tabId);return true}`);
  await ext.close();ext=undefined;
  const reopened=await a.json('open_page',{url:root+'/lifecycle-resume'});
  await a.call('set_page_retention',{pageId:reopened.pageId,retained:true});

@@ -27,7 +27,7 @@ export class Upstream {
     this.starting=(async()=>{
       const client=new Client({name:'codex-browser-workspaces',version:VERSION},{capabilities:{roots:{listChanged:true}}});
       client.setRequestHandler(ListRootsRequestSchema,async()=>({roots:[...this.roots].map(root=>({uri:pathToFileURL(root).href}))}));
-      const transport=new StdioClientTransport({command:process.execPath,args:[fileURLToPath(new URL('../../upstream/build/src/bin/chrome-devtools-mcp.js',import.meta.url)),`--browser-url=${this.browserURL}`,'--no-usage-statistics','--experimental-structured-content','--page-id-routing'],stderr:'pipe'});
+      const transport=new StdioClientTransport({command:process.execPath,args:[fileURLToPath(new URL('../../upstream/build/src/bin/chrome-devtools-mcp.js',import.meta.url)),`--browser-url=${this.browserURL}`,'--no-usage-statistics','--experimental-structured-content','--page-id-routing','--categoryExtensions'],stderr:'pipe'});
       transport.stderr?.on('data',()=>{});
       try{await client.connect(transport);}catch(e){await client.close();throw e;}
       client.onclose=()=>{if(this.client===client){this.client=undefined;this.epoch=randomUUID();}};
@@ -71,9 +71,11 @@ export class Upstream {
     for(let attempt=0;attempt<20;attempt++){
       const r=await this.call('list_pages',{},targetIds);
       if(r.isError)throw new Error('UPSTREAM_MAPPING_FAILED');
-      const pages=r.structuredContent?.pages as {id:number;targetId:string}[]|undefined;
-      if(!Array.isArray(pages))throw new Error('UPSTREAM_CONTRACT_CHANGED');
-      const map=new Map(pages.map(p=>[p.targetId,p.id]));
+      const content=r.structuredContent;
+      if(!content||typeof content!=='object'||Array.isArray(content))throw new Error('UPSTREAM_CONTRACT_CHANGED');
+      for(const field of ['pages','extensionPages'])if(content[field]!==undefined&&!Array.isArray(content[field]))throw new Error('UPSTREAM_CONTRACT_CHANGED');
+      const pages=[...(Array.isArray(content.pages)?content.pages:[]),...(Array.isArray(content.extensionPages)?content.extensionPages:[])] as {id:number;targetId:string}[];
+      const map=new Map(pages.filter(p=>targetIds.includes(p.targetId)).map(p=>[p.targetId,p.id]));
       if(targetIds.every(id=>map.has(id)))return map;
       await new Promise(resolve=>setTimeout(resolve,100));
     }

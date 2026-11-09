@@ -27,6 +27,7 @@ export class Rpc {
     this.heartbeat=setInterval(()=>{if(!this.socket.destroyed)this.socket.write('{"method":"ping"}\n');},20000);this.heartbeat.unref();
   }
   async call(method:string,params:unknown={},options:{signal?:AbortSignal;deadline?:number}={}):Promise<any>{
+    if(method==='hello')params={...params as Record<string,unknown>,pid:process.pid};
     if(this.closed)throw new Error('BROKER_DISCONNECTED');
     const deadline=options.deadline??Date.now()+60000;
     if(options.signal?.aborted||Date.now()>=deadline)throw new OperationError('REQUEST_CANCELLED',{outcome:'NOT_STARTED'});

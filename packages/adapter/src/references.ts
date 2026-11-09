@@ -1,5 +1,6 @@
 import type {CallToolResult} from '@modelcontextprotocol/sdk/types.js';
 export function pageHandle(generation:string,targetId:string){return `p:${generation}:${targetId}`;}
+export function leasedPageHandle(generation:string,targetId:string,membershipId:string,version:number){return `${pageHandle(generation,targetId)}:${membershipId}:${version}`;}
 export function encodeRef(pageId:string,epoch:string,kind:string,raw:string|number){return `${pageId}@${epoch}@${kind}@${raw}`;}
 export function decodeRef(value:unknown,pageId:string,epoch:string,kind:string):string|number {
   if(typeof value!=='string'||!value.startsWith(`${pageId}@`))throw new Error('PAGE_NOT_OWNED');

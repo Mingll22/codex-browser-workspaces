@@ -9,10 +9,13 @@ import {readFile,writeFile} from 'node:fs/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {extensionTestClient} from '../scripts/extension-test-client.mjs';
+// HISTORICAL 0.3.x synthetic-identity harness; not 0.4 acceptance evidence.
 
 const [anchor,configPath,outputPath]=process.argv.slice(2);
 assert.match(anchor??'',/^[A-F0-9]{32}$/);assert.ok(configPath&&outputPath);
 const config=JSON.parse(await readFile(configPath,'utf8'));
+const baseline=await (await fetch(config.pairing.url.replace('ws:','http:')+'/health')).json();
+assert.match(baseline.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: synthetic close-recovery identities cannot run on 0.4; use its acceptance matrix');
 const thread=randomUUID(),meta={threadId:thread,'x-codex-turn-metadata':{thread_id:thread,codex_version:'fixture'}};
 const evidence={layer:'real Chrome + installed stdio MCP; synthetic disposable thread identity',thread,checks:[],connectionRestarts:0};
 const client=new Client({name:'cbw-close-recovery-fixture',version:'0.1.0'});
@@ -28,7 +31,7 @@ let ext,pending;
 try{
  ext=await extensionTestClient(anchor);
  const a=await json('open_page',{url,slot:'main'}),b=await json('open_page',{url,slot:'reference'});
- const targetIds=[a,b].map(x=>x.pageId.split(':').at(-1));
+ const targetIds=[a,b].map(x=>x.pageId.split(':')[2]);
  const receipts=await ext.evaluate(`async()=>{const targets=await chrome.debugger.getTargets();return Promise.all(${JSON.stringify(targetIds)}.map(async id=>{const t=targets.find(x=>x.id===id);if(!t)throw Error('FIXTURE_TARGET_MISSING');const tab=await chrome.tabs.get(t.tabId);return {targetId:id,tabId:tab.id,groupId:tab.groupId,windowId:tab.windowId};}));}`);
  assert.equal(receipts[0].groupId,receipts[1].groupId);evidence.receipts=receipts;
  const marker='CBW_INFLIGHT_'+randomUUID();

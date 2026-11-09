@@ -1,6 +1,6 @@
 {
   "name": "codex-browser-workspaces",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -23,7 +23,7 @@
     "@types/ws": "8.18.1",
     "typescript": "5.9.3"
   },
-  "description": "Thread-owned Chrome tab groups for Codex CLI, built on official Chrome DevTools MCP",
+  "description": "Root-family Chrome workspaces with caller page leases for Codex CLI, built on official Chrome DevTools MCP",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

@@ -1,20 +1,25 @@
 import {join} from 'node:path';
 import {homedir} from 'node:os';
-// Explicit opt-in integration: installed MCP + real Windows Chrome, disposable
+// HISTORICAL 0.3.x integration: installed MCP + real Chrome, disposable
 // protocol fixture identities. Does not impersonate a real Codex thread.
+// Its same-page recovery after cancellation is not the 0.4 UNKNOWN contract.
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {extensionTestClient} from '../scripts/extension-test-client.mjs';
 const [anchor,output]=process.argv.slice(2);assert.match(anchor,/^[A-F0-9]{32}$/);assert.ok(output);
+const configPath=process.env.CBW_TEST_CONFIG??join(process.env.XDG_STATE_HOME??join(homedir(),'.local/state'),'codex-browser-workspaces/config.json');
+const config=JSON.parse(await readFile(configPath,'utf8'));
+const baseline=await (await fetch(config.pairing.url.replace('ws:','http:')+'/health')).json();
+assert.match(baseline.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: synthetic minimized-capture identities cannot run on 0.4; use its acceptance matrix');
 await mkdir(output,{recursive:true});
 const evidence={layer:'installed MCP + real Chrome, synthetic disposable identities',checks:[],captures:[]},fixtures=[];
 const ext=await extensionTestClient(anchor);
 async function fixture(){
  const thread=randomUUID(),client=new Client({name:'minimized-capture-fixture',version:'0.3.1'});
- const transport=new StdioClientTransport({command:process.execPath,args:[join(process.env.XDG_DATA_HOME??join(homedir(),'.local/share'),'codex-browser-workspaces/dist/adapter/src/stdio.js'),join(process.env.XDG_STATE_HOME??join(homedir(),'.local/state'),'codex-browser-workspaces/config.json')],stderr:'pipe'});transport.stderr.on('data',()=>{});await client.connect(transport);
+ const transport=new StdioClientTransport({command:process.execPath,args:[join(process.env.XDG_DATA_HOME??join(homedir(),'.local/share'),'codex-browser-workspaces/dist/adapter/src/stdio.js'),configPath],stderr:'pipe'});transport.stderr.on('data',()=>{});await client.connect(transport);
  const meta={threadId:thread,'x-codex-turn-metadata':{thread_id:thread,codex_version:'fixture'}};
  const raw=(name,args={},options={})=>client.callTool({name,arguments:args,_meta:meta},undefined,{timeout:35000,...options});
  const call=async(...args)=>{const r=await raw(...args);assert.equal(r.isError,undefined,JSON.stringify(r.structuredContent??r.content));return r;};

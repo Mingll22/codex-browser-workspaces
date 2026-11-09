@@ -8,7 +8,7 @@ The initial history imports an existing local implementation in several honest b
 
 Do not commit `.artifacts`, `dist`, dependencies, generated extension pairing configuration, runtime ledgers, local reports or machine-specific handoffs. The checked-in extension public key fixes its origin ID; it is not a pairing secret. Avoid changing it casually because existing installations use that origin.
 
-Upstream changes belong in the pinned build-time patch with exact anchor checks. Preserve upstream notices, and describe modifications in `docs/UPSTREAM.md`. Do not edit installed `node_modules` or relax ownership to make a fixture pass.
+Production upstream changes belong in the pinned build-time patch with exact anchor checks. The explicit admin/test metadata adapter is version-pinned and anchor-checked by that build; it adds exact page-object target metadata without changing tool handlers or granting page permissions. Preserve upstream notices, and describe modifications in `docs/UPSTREAM.md`. Do not edit installed `node_modules` or relax ownership to make a fixture pass.
 
 Worktrees do not isolate Chrome, ports or services. Serialize shared runtime upgrades and acceptance calls. Use Chrome DevTools MCP for browser integration; do not introduce Playwright as an alternate execution path for this project.
 

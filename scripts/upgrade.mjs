@@ -10,6 +10,9 @@ import {homedir} from 'node:os';
 import assert from 'node:assert/strict';
 const args=process.argv.slice(2),option=(key,otherwise)=>{const i=args.indexOf(key);return i<0?otherwise:args[i+1];};
 const adapterOnly=args.includes('--adapter-only');
+if(!args.includes('--family-plan'))throw Error('0.4 requires --family-plan <reviewed-plan.json>; first capture real group members and run plan-family-migration.mjs. No automatic merging.');
+const familyPlan=JSON.parse(await readFile(resolve(option('--family-plan')),'utf8'));
+if(familyPlan.state?.modelVersion!==2)throw Error('WORKSPACE_FAMILY_MIGRATION_REQUIRED');
 const extensionPath=option('--extension-dir');
 if(!extensionPath||extensionPath.startsWith('--'))throw Error('Source-checkout upgrade requires --extension-dir <Windows extension directory>; prebuilt archives support install/rollback only.');
 const anchor=option('--anchor');if(!/^[A-F0-9]{32}$/.test(anchor??''))throw Error('Pass --anchor with an owned target from open_page/list_pages');
@@ -31,31 +34,36 @@ const {Rpc}=await import('../dist/adapter/src/rpc.js');
 const {extensionTestClient}=await import('./extension-test-client.mjs');
 const config=JSON.parse(await readFile(join(stateDir,'config.json'),'utf8'));
 const version=JSON.parse(await readFile(join(source,'package.json'),'utf8')).version;
+const extensionVersion=JSON.parse(await readFile(join(source,'packages/extension/manifest.json'),'utf8')).version;
 const healthURL=config.pairing.url.replace('ws:','http:')+'/health';
 const oldVersion=JSON.parse(await readFile(join(destination,'package.json'),'utf8')).version;
 const rpc=new Rpc(config.socket);await rpc.ready;
-let staged,activated=false,stopped=false,extensionCopied=false,reloaded=false;
+let staged,activated=false,stopped=false,extensionCopied=false,reloaded=false,stateStaged=false;
+const rollbackPlan=join(stateDir,`rollback-family-${stamp}.json`);
 const extensionBackup=extensionDir+'-backup-'+stamp;
 async function snapshot(){
  const ext=await extensionTestClient(anchor);
- try{return await ext.evaluate(`async()=>{const {state}=await chrome.storage.session.get('state');if(!state)throw Error('WORKSPACE_STATE_UNAVAILABLE');const targets=await chrome.debugger.getTargets(),receipts=[];for(const ws of Object.values(state.workspaces))for(const key of Object.keys(ws.tabs)){const tab=await chrome.tabs.get(Number(key)),target=targets.find(t=>t.tabId===tab.id&&t.type==='page');if(!target||tab.groupId!==ws.groupId||tab.windowId!==ws.windowId)throw Error('WORKSPACE_UPGRADE_TARGET_CHANGED');receipts.push({tabId:tab.id,targetId:target.id,groupId:tab.groupId,windowId:tab.windowId});}return {generation:state.generation,version:chrome.runtime.getManifest().version,receipts};}`);}finally{await ext.close();}
+ try{return await ext.evaluate(`async()=>{const {state}=await chrome.storage.session.get('state');if(!state)throw Error('WORKSPACE_STATE_UNAVAILABLE');const targets=await chrome.debugger.getTargets(),receipts=[];const groups=new Set(Object.values(state.workspaces).map(ws=>ws.groupId).filter(id=>id!==null&&id!==undefined));for(const groupId of groups)for(const tab of await chrome.tabs.query({groupId})){const target=targets.find(t=>t.tabId===tab.id&&t.type==='page');if(!target)throw Error('WORKSPACE_UPGRADE_TARGET_CHANGED');receipts.push({tabId:tab.id,targetId:target.id,groupId:tab.groupId,windowId:tab.windowId});}return {state,generation:state.generation,version:chrome.runtime.getManifest().version,receipts};}`);}finally{await ext.close();}
 }
-async function waitHealth(expected){
+async function waitHealth(expectedAdapter,expectedExtension){
  const deadline=Date.now()+30000;let last;
- while(Date.now()<deadline){try{last=await (await fetch(healthURL,{signal:AbortSignal.timeout(1500)})).json();if(last.connected&&(!last.adapter||last.adapter===expected)&&(!last.extension||last.extension===expected))return last;}catch(e){last={error:e.message};}await new Promise(r=>setTimeout(r,250));}
+ while(Date.now()<deadline){try{last=await (await fetch(healthURL,{signal:AbortSignal.timeout(1500)})).json();if(last.connected&&(!last.adapter||last.adapter===expectedAdapter)&&(!last.extension||last.extension===expectedExtension))return last;}catch(e){last={error:e.message};}await new Promise(r=>setTimeout(r,250));}
  throw Error('UPGRADE_HEALTH_TIMEOUT '+JSON.stringify(last));
 }
 try{
  report.before=await snapshot();
- if(adapterOnly&&report.before.version!==version)throw Error('ADAPTER_ONLY_REQUIRES_MATCHING_EXTENSION_VERSION');
+ assert.equal(familyPlan.state.generation,report.before.generation);
+ const ordered=rows=>[...rows].sort((a,b)=>a.tabId-b.tabId);
+ assert.deepEqual(ordered(familyPlan.targets),ordered(report.before.receipts));
+ await writeFile(rollbackPlan,JSON.stringify({state:report.before.state,targets:report.before.receipts}),{mode:0o600});report.rollbackPlan=rollbackPlan;
+ if(adapterOnly&&report.before.version!==extensionVersion)throw Error('ADAPTER_ONLY_REQUIRES_MATCHING_EXTENSION_VERSION');
  staged=JSON.parse(await run(process.execPath,['scripts/install.mjs','--stage-only','--destination',destination,'--state-dir',stateDir],true));report.previous=staged.previous;
  await cp(extensionDir,extensionBackup,{recursive:true});report.extensionBackup=extensionBackup;step('installation_and_extension_backed_up');
  if(oldVersion!=='0.1.1'){await rpc.call('maintenance',{enabled:true});step('broker_quiesced');}
  // The initial 0.1.1 migration has no maintenance protocol. Stop only the broker;
  // later versions refuse upgrades during active tool work instead of interrupting it.
  await systemctl('stop');stopped=true;
- if(!adapterOnly){await run(process.execPath,['scripts/stage-extension-upgrade.mjs',anchor]);step('live_target_receipts_staged');}
- report.before=await snapshot();
+ if(!adapterOnly){stateStaged=true;await run(process.execPath,['scripts/stage-extension-upgrade.mjs',anchor,'--family-plan',resolve(option('--family-plan'))]);step('live_target_receipts_staged');}
  if(staged.previous)await rename(destination,staged.previous);
  try{await rename(staged.staging,destination);activated=true;}catch(e){if(staged.previous)await rename(staged.previous,destination);throw e;}
  if(!adapterOnly){await cp(join(destination,'dist/extension'),extensionDir,{recursive:true});extensionCopied=true;}
@@ -72,9 +80,9 @@ try{
   // complete startup; health polling alone does not exercise that boundary.
   await snapshot();
  }
- report.health=await waitHealth(version);
+ report.health=await waitHealth(version,extensionVersion);
  report.after=await snapshot();
- assert.equal(report.after.version,version);assert.equal(report.after.generation,report.before.generation);
+ assert.equal(report.after.version,extensionVersion);assert.equal(report.after.generation,report.before.generation);
  assert.deepEqual(report.after.receipts.sort((a,b)=>a.tabId-b.tabId),report.before.receipts.sort((a,b)=>a.tabId-b.tabId));
  assert.equal(JSON.parse(await readFile(join(destination,'package.json'),'utf8')).version,version);
  assert.equal(await readFile(join(extensionDir,'worker.js'),'utf8'),await readFile(join(source,'packages/extension/worker.js'),'utf8'));
@@ -82,15 +90,15 @@ try{
 }catch(error){
  report.error=error.stack;report.success=false;console.error(error);
  try{const ext=await extensionTestClient(anchor);try{report.connectionFailure=await ext.evaluate('()=>globalThis.cbwConnectionStatus?.()??{diagnosticsUnavailable:true}');}finally{await ext.close();}}catch(e){report.connectionDiagnosticError=e.message;}
- if(activated||extensionCopied||stopped){
+ if(activated||extensionCopied||stopped||stateStaged){
   try{
    await systemctl('stop');
-   if(reloaded){await run(process.execPath,['scripts/stage-extension-upgrade.mjs',anchor]);}
+   if(stateStaged){await run(process.execPath,['scripts/stage-extension-upgrade.mjs',anchor,'--family-plan',rollbackPlan]);}
    if(extensionCopied)await cp(extensionBackup,extensionDir,{recursive:true});
    if(activated&&staged.previous){report.failedInstallation=destination+'-failed-'+stamp;await rename(destination,report.failedInstallation);await rename(staged.previous,destination);}
    await run('systemctl',['--user','daemon-reload']);await systemctl('start');
    if(extensionCopied)await run(process.execPath,['scripts/reload-own-extension.mjs',anchor]);
-   report.rollbackHealth=await waitHealth(oldVersion);report.rollback=await snapshot();step('rollback_verified');
+   report.rollbackHealth=await waitHealth(oldVersion,report.before.version);report.rollback=await snapshot();step('rollback_verified');
   }catch(rollbackError){report.rollbackError=rollbackError.stack;console.error('Rollback requires attention:',rollbackError.message);}
  }
  process.exitCode=1;

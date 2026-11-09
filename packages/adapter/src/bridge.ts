@@ -4,14 +4,17 @@ import {createServer, type Server} from 'node:http';
 import {randomUUID, timingSafeEqual} from 'node:crypto';
 import {WebSocketServer, WebSocket} from 'ws';
 export interface Pairing {url:string;token:string;extensionId:string}
-export interface Page {tabId:number;targetId:string;groupId:number;url:string;slot:string;retained:boolean}
+export interface Page {tabId:number;targetId:string;groupId:number;url:string;slot:string|null;retained:boolean;membershipId:string;position:number;title:string;active:boolean;canClose:boolean;protected:boolean;reusable:boolean;source:string}
 export class Bridge {
   server:Server;
   private wss:WebSocketServer;
   private socket?:WebSocket;
   generation?:string;
   extensionVersion?:string;
+  pageModelVersion?:number;
   onPopup?:(event:{tabId:number;targetId:string;initialGroupId:number;generation:string})=>Promise<void>;
+  onStatusRequest?:()=>Record<string,unknown>;
+  publishStatus(data:Record<string,unknown>){if(this.socket?.readyState===WebSocket.OPEN)this.socket.send(JSON.stringify({type:'status',data}));}
   private lastPong=Date.now();
   private pending=new Map<string,{resolve:(v:any)=>void;reject:(e:Error)=>void;timer:NodeJS.Timeout}>();
   private heartbeat:NodeJS.Timeout;
@@ -41,10 +44,11 @@ export class Bridge {
         const expected=Buffer.from(this.pairing.token);
         if(m.type!=='hello'||supplied.length!==expected.length||!timingSafeEqual(supplied,expected)||typeof m.generation!=='string') {ws.close(1008,'PAIRING_REJECTED');return;}
         if(this.socket){ws.close(1008,'BRIDGE_ALREADY_CONNECTED');return;}
-        clearTimeout(timeout);authenticated=true;this.socket=ws;this.generation=m.generation;this.extensionVersion=m.version;this.lastPong=Date.now();
-        return;
+        clearTimeout(timeout);authenticated=true;this.socket=ws;this.generation=m.generation;this.extensionVersion=m.version;this.pageModelVersion=m.pageModelVersion;this.lastPong=Date.now();
+        if(this.onStatusRequest)this.publishStatus(this.onStatusRequest());return;
       }
-      if(m.type==='pong'){this.lastPong=Date.now();return;}
+      if(m.type==='pong'){this.lastPong=Date.now();if(this.onStatusRequest)this.publishStatus(this.onStatusRequest());return;}
+      if(m.type==='status_request'){if(this.onStatusRequest)this.publishStatus(this.onStatusRequest());return;}
       if(m.type==='popup'&&Number.isInteger(m.tabId)&&typeof m.targetId==='string'&&Number.isInteger(m.initialGroupId)&&m.generation===this.generation){
         void this.onPopup?.(m).catch(e=>console.error('Popup identity:',e.message));return;
       }
@@ -58,7 +62,7 @@ export class Bridge {
       clearTimeout(timeout);
       if(this.socket!==ws)return;
       this.socket=undefined;
-      for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(new Error('BRIDGE_DISCONNECTED'));}
+      for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(new OperationError('BRIDGE_DISCONNECTED',{outcome:'UNKNOWN',nextAction:'inspect_page_before_retry'}));}
       this.pending.clear();
     });
   }
@@ -71,7 +75,7 @@ export class Bridge {
     if(!this.socket||this.socket.readyState!==WebSocket.OPEN)return Promise.reject(new Error('BRIDGE_DISCONNECTED'));
     const id=randomUUID(),socket=this.socket,op=operations.getStore();
     const deadline=Math.min(Date.now()+15000,op?.deadline??Infinity);
-    if(['open','close','retain','title','adopt_popup','finalize_open','prepare_capture','finish_capture'].includes(method))dispatched();
+    if(['open','move_tab_to_workspace','close','retain','title','adopt_popup','prepare_capture','finish_capture'].includes(method))dispatched();
     return new Promise((resolve,reject)=>{
       const cleanup=()=>{clearTimeout(timer);op?.signal.removeEventListener('abort',abort);this.pending.delete(id);};
       const cancel=(code:string)=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'cancel',id}));cleanup();reject(new OperationError(code,{outcome:op?.dispatched?'UNKNOWN':'NOT_STARTED',nextAction:'inspect_page_before_retry'}));};
@@ -84,5 +88,5 @@ export class Bridge {
     });
   }
 
-  async close(){clearInterval(this.heartbeat);this.socket?.terminate();for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(new Error('BRIDGE_DISCONNECTED'));}this.pending.clear();this.wss.close();await new Promise<void>(resolve=>this.server.close(()=>resolve()));}
+  async close(){clearInterval(this.heartbeat);this.socket?.terminate();for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(new OperationError('BRIDGE_DISCONNECTED',{outcome:'UNKNOWN',nextAction:'inspect_page_before_retry'}));}this.pending.clear();this.wss.close();await new Promise<void>(resolve=>this.server.close(()=>resolve()));}
 }

@@ -30,3 +30,12 @@ test('cancellation propagates to the extension without disconnecting other reque
  await assert.rejects(operations.run({id:'test',signal:controller.signal,deadline:Date.now()+5000},()=>bridge.request('open')),/REQUEST_CANCELLED/);
  assert.deepEqual(await bridge.request('list'),{ok:true});assert.equal(messages.filter(m=>m.type==='cancel').length,1);ws.close();
 });
+
+test('authenticated extension status requests read current counters without a tool or page mutation',async t=>{
+ const [bridge,url]=await setup(t);let requests=0;
+ bridge.onStatusRequest=()=>({mcpConnections:++requests,activeThreads:0,leasedTargets:[]});
+ const ws=new WebSocket(url,{headers:{Origin:`chrome-extension://${pairing.extensionId}`}});await once(ws,'open');
+ const first=once(ws,'message');ws.send(JSON.stringify({type:'hello',token:pairing.token,generation:'g',pageModelVersion:2}));
+ assert.equal(JSON.parse((await first)[0]).data.mcpConnections,1);
+ const next=once(ws,'message');ws.send(JSON.stringify({type:'status_request'}));assert.equal(JSON.parse((await next)[0]).data.mcpConnections,2);assert.equal(bridge.pageModelVersion,2);ws.close();
+});

@@ -2,6 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Ajv2020} from 'ajv/dist/2020.js';
 import {Upstream} from '../dist/adapter/src/upstream.js';
+import {validateUrl} from '../dist/upstream/build/src/utils/url.js';
+import {McpResponse} from '../dist/upstream/build/src/McpResponse.js';
+
+test('mapping accepts official extension-only and mixed page responses without granting worker targets',async()=>{
+ const page=(id,targetId,url)=>({id,targetId,url:()=>url,getTitle:()=>targetId});
+ const regular=page(1,'regular','https://example.test/');
+ const extension=page(2,'extension','chrome-extension://abcdefghijklmnopabcdefghijklmnop/options.html');
+ const unowned=page(3,'unowned','https://unowned.test/');
+ for(const pages of [[regular],[extension],[regular,extension,unowned]]){
+  const response=new McpResponse({categoryExtensions:true});response.setIncludePages(true);
+  const context={getPages:()=>pages,getSelectedPageFallback:()=>undefined,getTargetInfos:async()=>new Map(),isPageSelected:()=>false,getWorkers:()=>{throw new Error('page responses must not enumerate unowned workers');}};
+  const result=await response.format(context,{});
+  const upstream=new Upstream('http://127.0.0.1:9222');
+  upstream.call=async(name,args,scope)=>{assert.equal(name,'list_pages');assert.deepEqual(scope,pages.filter(p=>p!==unowned).map(p=>p.targetId));return result;};
+  const owned=pages.filter(p=>p!==unowned);
+  const mapping=await upstream.mapping(owned.map(p=>p.targetId));
+  assert.deepEqual([...mapping],owned.map(p=>[p.targetId,p.id]));
+  assert.equal(result.structuredContent.extensionServiceWorkers,undefined);
+  assert.doesNotMatch(result.content[0].text,/Extension Service Workers/);
+  if(pages.length===1&&pages[0]===extension)assert.equal(result.structuredContent.pages,undefined);
+ }
+});
+
+test('official extension navigation remains gated by its category option',()=>{
+ const url='chrome-extension://abcdefghijklmnopabcdefghijklmnop/options.html';
+ assert.throws(()=>validateUrl(url,{}),/without --categoryExtensions/);
+ assert.equal(validateUrl(url,{categoryExtensions:true}).href,url);
+ assert.throws(()=>validateUrl('chrome://settings',{categoryExtensions:true}),/not allowed/);
+});
 
 test('pinned official MCP schemas compile and expose only owned-page parameters',async()=>{
  const upstream=new Upstream('http://127.0.0.1:9222');
@@ -18,4 +47,12 @@ test('pinned official MCP schemas compile and expose only owned-page parameters'
    assert.equal(validate({pageId:3}),false,'numeric upstream IDs must never be public');
   }
  }finally{await upstream.close();}
+});
+
+test('empty official page list waits for discovery without rejecting a new target',async()=>{
+ const upstream=new Upstream('http://127.0.0.1:9222');let calls=0;
+ upstream.call=async()=>({structuredContent:++calls===1?{}:{pages:[{id:7,targetId:'owned'}]}});
+ assert.equal((await upstream.mapping(['owned'])).get('owned'),7);assert.equal(calls,2);
+ upstream.call=async()=>({structuredContent:{pages:'invalid'}});
+ await assert.rejects(upstream.mapping(['owned']),/UPSTREAM_CONTRACT_CHANGED/);
 });
