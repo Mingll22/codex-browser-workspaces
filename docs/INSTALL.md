@@ -82,6 +82,12 @@ Use the generated paths; do not paste the placeholders literally. Project-specif
 
 Reconnect the MCP client. Open a disposable page, list only that thread's pages, read it, take a screenshot, and close it. Confirm ordinary tabs were not adopted and Chrome did not take OS focus. Do not use `reset_workspace` to adopt an unrelated existing group.
 
+## Automatic group cleanup
+
+The broker's configuration defaults to `closedThreadGraceMs: 30000`. When a thread's registered stdio process exits, its non-retained pages close after the grace period plus up to five seconds for exit detection. Closing the last page removes the Chrome group unless it also contains retained or ordinary user tabs. A thread that is simply idle or temporarily disconnected keeps its pages while its stdio process is alive. A reconnect cancels pending cleanup.
+
+After upgrading from 0.3.1, reconnect already-running MCP clients once so their next browser calls register a process lifetime. New stdio processes do this automatically. Older groups with no registered lifetime are not bulk-collected. Set `closedThreadGraceMs` to `null` to opt out; `detachedTtlMs` is a separate optional policy and remains `null` by default. Details and uncertain-close behavior are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Source upgrades
 
 Use a reviewed source checkout with its dependencies installed. Close or finish active tool requests first. Supply a current **owned target ID** (the last component of a returned pageId) and the WSL path to the installed Windows extension directory:
@@ -94,7 +100,7 @@ node scripts/upgrade.mjs \
 
 The script builds/tests, stages artifacts, requires an idle broker, saves exact live-target receipts, updates the adapter/extension and verifies generation and ownership after reconnect. It stops only the broker, not Chrome. `UPGRADE_BUSY` is a request to wait for in-flight work to finish, not to bypass the protection. Do not run acceptance/browser calls concurrently with this upgrade.
 
-Use `--adapter-only` only when extension version and code are already identical; it avoids extension reload. Non-default installations also need their explicit `--destination` and `--state-dir`.
+Use `--adapter-only` only when the loaded extension version and code already match the source extension; it avoids extension reload. The adapter and extension have independent runtime versions (for example, adapter 0.3.2 with extension 0.3.1). Non-default installations also need their explicit `--destination` and `--state-dir`.
 
 ## Rollback
 

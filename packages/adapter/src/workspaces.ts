@@ -7,7 +7,8 @@ import {pageHandle,inputReferences,outputReferences} from './references.js';
 import type {CallToolResult} from '@modelcontextprotocol/sdk/types.js';
 import {checkpoint,operations,OperationError} from './operation.js';
 import {VERSION} from './version.js';
-interface Workspace {generation:string;detachedAt:number|null}
+import {controllerExited,type ControllerProcess} from './controller-process.js';
+interface Workspace {generation:string;detachedAt:number|null;owner?:ControllerProcess;closedAt?:number;closePending?:string;cleanupDone?:boolean}
 export const textResult=(value:unknown):CallToolResult=>({content:[{type:'text',text:JSON.stringify(value)}]});
 export class Workspaces {
   readonly controllers=new Controllers();
@@ -16,9 +17,9 @@ export class Workspaces {
   private writes=Promise.resolve();
   private persisted='';
   private captures=Promise.resolve();
-  private titles=new Map<string,{value:string;until:number}>();
-  private displayTitle(thread:string){const old=this.titles.get(thread);if(old&&old.until>Date.now())return old.value;const value=this.title(thread);if(this.titles.size>=200)this.titles.delete(this.titles.keys().next().value!);this.titles.set(thread,{value,until:Date.now()+2000});return value;}
-  constructor(readonly bridge:Bridge,readonly upstream:Upstream,private stateFile:string,private maxTabs=8,private ttlMs:number|null=null,private title=(thread:string)=>threadTitle(thread)){}
+  private titles=new Map<string,{value:string;until:number;cwd?:string}>();
+  private displayTitle(thread:string,cwd?:string){const old=this.titles.get(thread);if(old&&old.cwd===cwd&&old.until>Date.now())return old.value;const value=this.title(thread,cwd);if(this.titles.size>=200)this.titles.delete(this.titles.keys().next().value!);this.titles.set(thread,{value,until:Date.now()+2000,cwd});return value;}
+  constructor(readonly bridge:Bridge,readonly upstream:Upstream,private stateFile:string,private maxTabs=8,private ttlMs:number|null=null,private title=(thread:string,cwd?:string)=>threadTitle(thread,undefined,cwd),private closedThreadGraceMs:number|null=30000){}
   async load(){
     try{this.records=JSON.parse(await readFile(this.stateFile,'utf8')).workspaces;}catch(e:any){if(e.code!=='ENOENT')throw e;}
     for(const record of Object.values(this.records))record.detachedAt??=Date.now();
@@ -44,7 +45,7 @@ export class Workspaces {
     if(!record){this.records[thread]={generation,detachedAt:null};await this.persist();}
     return {generation,pages,workspace,runtime};
   }
-  async call(connection:string,thread:string,name:string,args:Record<string,any>):Promise<CallToolResult>{
+  async call(connection:string,thread:string,name:string,args:Record<string,any>,owner?:ControllerProcess,clientCwd?:string):Promise<CallToolResult>{
     const previous=this.controllers.attach(connection,thread);
     if(previous&&this.records[previous]){this.records[previous].detachedAt=Date.now();await this.persist();}
     return this.lock(thread,async()=>{
@@ -55,12 +56,15 @@ export class Workspaces {
         this.records[thread]={generation:ping.generation,detachedAt:null};await this.persist();return textResult({reset:true});
       }
       let {generation,pages,workspace,runtime}=await this.listing(thread);
-      this.records[thread].detachedAt=null;await this.persist();
-      await this.bridge.request('title',{threadId:thread,title:this.displayTitle(thread)});
-      if(name==='list_pages')return textResult({pages:pages.map(p=>({pageId:pageHandle(generation,p.targetId),url:p.url,slot:p.slot,retained:p.retained})),workspace:workspace??{status:pages.length?'READY':'EMPTY'},runtime:{adapter:VERSION,upstream:'1.11.0',...runtime}});
+      const record=this.records[thread];
+      record.detachedAt=null;record.owner=owner;delete record.closedAt;delete record.closePending;delete record.cleanupDone;await this.persist();
+      const title=this.displayTitle(thread,clientCwd);
+      if(name!=='open_page')await this.bridge.request('title',{threadId:thread,title});
+      if(name==='list_pages')return textResult({pages:pages.map(p=>({pageId:pageHandle(generation,p.targetId),url:p.url,slot:p.slot,retained:p.retained})),workspace:workspace??{status:pages.length?'READY':'EMPTY'},runtime:{adapter:VERSION,upstream:'1.11.0',...runtime,cleanup:{enabled:this.closedThreadGraceMs!==null,controllerRegistered:!!record.owner,graceMs:this.closedThreadGraceMs}}});
       if(name==='open_page'){
-        const result=await this.bridge.request('open',{threadId:thread,slot:args.slot??'main',title:this.displayTitle(thread),maxTabs:this.maxTabs});
+        const result=await this.bridge.request('open',{threadId:thread,slot:args.slot??'main',title,maxTabs:this.maxTabs});
         if(result.generation!==generation)throw new Error('WORKSPACE_RESTORE_REQUIRED');
+        if(result.reused)await this.bridge.request('title',{threadId:thread,title});
         const page:Page=result.page;
         if(page.url!==args.url){
           const map=await this.upstream.mapping([page.targetId]);
@@ -111,15 +115,34 @@ export class Workspaces {
     });
   }
   async collect(now=Date.now()) {
-    if(this.ttlMs===null)return;
-    for(const thread of Object.keys(this.records))await this.lock(thread,async()=>{
+    if(this.ttlMs===null&&this.closedThreadGraceMs===null)return;
+    const errors:string[]=[];
+    for(const thread of Object.keys(this.records))try{await this.lock(thread,async()=>{
       const record=this.records[thread];
-      if(this.controllers.attached(thread)||record.detachedAt===null||now-record.detachedAt<this.ttlMs!)return;
+      if(!record||record.cleanupDone||this.controllers.attached(thread)||record.detachedAt===null)return;
+      if(record.owner){
+        if(!controllerExited(record.owner)){if(record.closedAt!==undefined){delete record.closedAt;await this.persist();}return;}
+        if(this.closedThreadGraceMs!==null){
+          if(record.closedAt===undefined){record.closedAt=now;await this.persist();return;}
+          if(now-record.closedAt<this.closedThreadGraceMs)return;
+        }else if(this.ttlMs===null||now-record.detachedAt<this.ttlMs)return;
+      }else if(this.ttlMs===null||now-record.detachedAt<this.ttlMs)return;
       const {pages}=await this.listing(thread);
+      // A timed-out close may still be waiting on beforeunload. Query for its
+      // eventual removal without replaying the destructive request.
+      if(record.closePending&&pages.some(page=>page.targetId===record.closePending))return;
+      delete record.closePending;
       for(const page of pages){
         if(this.controllers.attached(thread))return;
-        if(!page.retained)await this.bridge.request('close',{threadId:thread,tabId:page.tabId,targetId:page.targetId});
+        if(!page.retained)try{await this.bridge.request('close',{threadId:thread,tabId:page.tabId,targetId:page.targetId});}
+        catch(error:any){if(error.message!=='BRIDGE_DISCONNECTED'){record.closePending=page.targetId;await this.persist();}throw error;}
       }
-    });
+      if(!this.controllers.attached(thread)){
+        if(!(await this.listing(thread)).pages.length)delete this.records[thread];
+        else record.cleanupDone=true;
+        await this.persist();
+      }
+    });}catch(error:any){errors.push(`${thread}:${error.message}`);}
+    if(errors.length)throw new Error(errors.join('; '));
   }
 }

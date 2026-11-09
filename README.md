@@ -6,14 +6,15 @@ Thread-owned Chrome tab groups for Codex CLI, built on the official Chrome DevTo
 
 Run several Codex conversations against one already-running, logged-in Chrome profile. Each real Codex thread owns a colored tab group and can operate only on its registered pages through this MCP adapter. Your ordinary tabs remain outside its ownership.
 
-**Status:** early release, version 0.3.1. The validated environment is **Codex CLI in WSL + Windows Chrome**. This is an independent community project, not an official OpenAI or Google product.
+**Status:** early development, adapter source version 0.3.3 with extension 0.3.1. The validated environment is **Codex CLI in WSL + Windows Chrome**. This is an independent community project, not an official OpenAI or Google product.
 
 ## Why this exists
 
 Page routing identifies a target; it does not establish which conversation owns it. This adapter binds each call to Codex's thread metadata, checks page ownership, and coordinates the shared window without asking the model to choose a thread ID.
 
-- One stable colored tab group per thread, in the shared Chrome window.
+- One stable colored tab group per thread, named `[Project]Thread name`, in the shared Chrome window.
 - Named page slots such as `main` and `reference`, with explicit close and retention controls.
+- Automatic cleanup after a registered thread's MCP process exits; idle and temporarily disconnected live controllers keep their pages.
 - Page, element, console and network references scoped to their owning page and connection generation.
 - Ordinary tabs are never adopted because their URL or group title happens to match.
 - Owned popups inherit ownership through their actual CDP opener; dragging a tab out revokes access.
@@ -49,7 +50,7 @@ An allowlist forwards 19 official page tools for navigation, snapshots, screensh
 
 ## Validation and limitations
 
-The current public source has 68 automated checks, including portable archive installation. The original runtime baseline had 67 checks plus real Windows Chrome screenshot/cancellation evidence. Latest-version multi-client browser tests use explicitly synthetic fixture identities; they are not presented as multiple real Codex sessions. See [acceptance](docs/ACCEPTANCE.md) for the exact evidence and untested boundaries.
+Automated checks cover project/thread labels, ownership, lifecycle, cancellation and portable archive installation. Real browser evidence distinguishes actual Codex host threads from synthetic protocol fixtures. See [acceptance](docs/ACCEPTANCE.md) for dated results, minimized-screenshot evidence and untested boundaries.
 
 The official backend is pinned to `chrome-devtools-mcp@1.11.0`. Build-time patches are checked against exact source anchors and fail on an unreviewed version. Native Linux/macOS Chrome, generic MCP clients and recovery of arbitrary page state after a complete browser restart are not claimed.
 

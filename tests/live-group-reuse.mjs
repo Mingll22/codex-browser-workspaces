@@ -15,8 +15,9 @@ const evidence={layer:'real Chrome + installed broker; synthetic fixture thread 
 const pass=name=>{evidence.checks.push(name);console.log('PASS',name);};
 function connection(){
  const id=randomUUID(),rpc=new Rpc(config.socket);
+ const ready=rpc.call('hello',{cwd:process.cwd(),version:'fixture'});
  const meta={threadId:id,'x-codex-turn-metadata':{thread_id:id,codex_version:'fixture'}};
- return {id,rpc,async call(name,args={}){const r=await rpc.call('call',{name,args,meta});if(r.isError)throw Error(JSON.stringify(r));return r;},async json(name,args={}){return JSON.parse((await this.call(name,args)).content[0].text);}};
+ return {id,rpc,async call(name,args={}){await ready;const r=await rpc.call('call',{name,args,meta});if(r.isError)throw Error(JSON.stringify(r));return r;},async json(name,args={}){return JSON.parse((await this.call(name,args)).content[0].text);}};
 }
 const a=connection(),b=connection();
 evidence.fixtureThreads=[a.id,b.id];

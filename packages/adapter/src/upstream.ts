@@ -71,7 +71,11 @@ export class Upstream {
     for(let attempt=0;attempt<20;attempt++){
       const r=await this.call('list_pages',{},targetIds);
       if(r.isError)throw new Error('UPSTREAM_MAPPING_FAILED');
-      const pages=r.structuredContent?.pages as {id:number;targetId:string}[]|undefined;
+      const content=r.structuredContent;
+      if(!content||typeof content!=='object'||Array.isArray(content))throw new Error('UPSTREAM_CONTRACT_CHANGED');
+      // A newly opened target may not be discovered yet. Official list_pages
+      // omits `pages` for an empty result; use the existing discovery wait.
+      const pages=(content.pages??[]) as {id:number;targetId:string}[];
       if(!Array.isArray(pages))throw new Error('UPSTREAM_CONTRACT_CHANGED');
       const map=new Map(pages.map(p=>[p.targetId,p.id]));
       if(targetIds.every(id=>map.has(id)))return map;

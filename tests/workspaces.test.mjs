@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Workspaces} from '../dist/adapter/src/workspaces.js';
 import {pageHandle} from '../dist/adapter/src/references.js';
+import {controllerProcess} from '../dist/adapter/src/controller-process.js';
 class FakeBridge {
  generation='g1';rows=new Map();next=0;opens=0;finalizations=[];
  async request(method,a){
@@ -30,8 +31,11 @@ const unwrap=r=>JSON.parse(r.content[0].text);
 async function setup(t,ttl=null){
  const dir=await mkdtemp(join(tmpdir(),'cbw-test-'));t.after(()=>rm(dir,{recursive:true,force:true}));
  const bridge=new FakeBridge();const upstream={epoch:'e1',calls:[],async mapping(ids){return new Map(ids.map(id=>[id,Number(id.slice(1))]));},async call(name,args,scope){this.calls.push({name,args,scope});if(name==='navigate_page')for(const pages of bridge.rows.values())for(const p of pages)if(p.tabId===args.pageId)p.url=args.url;return {content:[{type:'text',text:'ok'}]};}};
- const ws=new Workspaces(bridge,upstream,join(dir,'state.json'),2,ttl,()=> 'Same title');await ws.load();return {ws,bridge,upstream};
+ const stateFile=join(dir,'state.json');
+ const ws=new Workspaces(bridge,upstream,stateFile,2,ttl,()=> 'Same title');await ws.load();return {ws,bridge,upstream,stateFile};
 }
+const liveOwner=()=>controllerProcess(process.pid);
+const exitedOwner=()=>({...liveOwner(),startTime:'0'});
 test('lazy workspace, atomic slot reuse, hard cap, and last-page recreation',async t=>{
  const {ws,bridge}=await setup(t);
  assert.deepEqual(unwrap(await ws.call('c','a','list_pages',{})).pages,[]);assert.equal(bridge.opens,0);
@@ -105,4 +109,67 @@ test('failed persistence reports error but a repaired directory accepts the next
  await rm(parent);await mkdir(parent);await ws.call('c','a','list_pages',{});
  const first=await stat(join(parent,'state.json'));await new Promise(r=>setTimeout(r,10));
  await ws.call('c','a','list_pages',{});assert.equal((await stat(join(parent,'state.json'))).mtimeMs,first.mtimeMs);
+});
+test('confirmed controller exit collects after grace, preserves other threads, and removes its record',async t=>{
+ const {readFile}=await import('node:fs/promises');
+ const {ws,bridge,stateFile}=await setup(t);
+ await ws.call('a','a','open_page',{url:'about:blank'},exitedOwner());
+ await ws.call('b','b','open_page',{url:'about:blank'},liveOwner());
+ await ws.detach('a');const now=Date.now();
+ await ws.collect(now);await ws.collect(now+29999);assert.equal(bridge.rows.get('a').length,1);
+ await ws.collect(now+30000);assert.equal(bridge.rows.get('a').length,0);assert.equal(bridge.rows.get('b').length,1);
+ assert.equal(JSON.parse(await readFile(stateFile,'utf8')).workspaces.a,undefined);
+});
+test('live disconnected controller and switched-away thread survive collection and broker reload',async t=>{
+ const {ws,bridge,upstream,stateFile}=await setup(t,1000);
+ await ws.call('shared','a','open_page',{url:'about:blank'},liveOwner());
+ await ws.call('shared','b','open_page',{url:'about:blank'},liveOwner());
+ await ws.collect(Date.now()+100000);assert.equal(bridge.rows.get('a').length,1);
+ await ws.detach('shared');await ws.collect(Date.now()+100000);
+ const restored=new Workspaces(bridge,upstream,stateFile,2,1000,()=> 'test');await restored.load();
+ await restored.collect(Date.now()+1000000);
+ assert.equal(bridge.rows.get('a').length,1);assert.equal(bridge.rows.get('b').length,1);
+});
+test('reconnect cancels exit cleanup; unregistered historical controllers remain untouched',async t=>{
+ const {ws,bridge}=await setup(t);
+ const p=unwrap(await ws.call('old','a','open_page',{url:'about:blank'},exitedOwner()));await ws.detach('old');
+ const now=Date.now();await ws.collect(now);
+ assert.equal(unwrap(await ws.call('new','a','list_pages',{},liveOwner())).pages[0].pageId,p.pageId);
+ await ws.detach('new');await ws.call('legacy','legacy','open_page',{url:'about:blank'});await ws.detach('legacy');
+ await ws.collect(now+1000000);assert.equal(bridge.rows.get('a').length,1);assert.equal(bridge.rows.get('legacy').length,1);
+});
+test('closed-thread cleanup respects retention and does not keep scanning completed retained groups',async t=>{
+ const {ws,bridge}=await setup(t),owner=exitedOwner();
+ const p=unwrap(await ws.call('c','a','open_page',{url:'about:blank'},owner));
+ await ws.call('c','a','set_page_retention',{pageId:p.pageId,retained:true},owner);
+ await ws.call('c','a','open_page',{url:'about:blank',slot:'temporary'},owner);await ws.detach('c');
+ const now=Date.now();await ws.collect(now);await ws.collect(now+30000);
+ assert.equal(bridge.rows.get('a').length,1);assert.equal(bridge.rows.get('a')[0].retained,true);
+ const request=bridge.request.bind(bridge);let listings=0;bridge.request=async(m,a)=>{if(m==='list')listings++;return request(m,a);};
+ await ws.collect(now+100000);assert.equal(listings,0);
+});
+test('uncertain close is not replayed or allowed to block cleanup of another thread',async t=>{
+ const {ws,bridge}=await setup(t),owner=exitedOwner();
+ await ws.call('a','a','open_page',{url:'about:blank'},owner);await ws.call('b','b','open_page',{url:'about:blank'},owner);
+ await ws.detach('a');await ws.detach('b');const now=Date.now();await ws.collect(now);
+ const request=bridge.request.bind(bridge);let closes=0;
+ bridge.request=async(m,a)=>{if(m==='close'&&a.threadId==='a'){closes++;throw new Error('PAGE_CLOSE_PENDING');}return request(m,a);};
+ await assert.rejects(ws.collect(now+30000),/a:PAGE_CLOSE_PENDING/);
+ assert.equal(bridge.rows.get('a').length,1);assert.equal(bridge.rows.get('b').length,0);
+ await ws.collect(now+100000);assert.equal(closes,1);
+ bridge.rows.set('a',[]);await ws.collect(now+200000);assert.equal(closes,1);
+});
+test('new opens avoid duplicate title messages, reused slots refresh labels, and cleanup registration is visible',async t=>{
+ const {bridge,upstream,stateFile}=await setup(t);const messages=[];const request=bridge.request.bind(bridge);
+ bridge.request=async(method,args)=>{if(method==='open'||method==='title')messages.push({method,title:args.title});return request(method,args);};
+ const ws=new Workspaces(bridge,upstream,stateFile,2,null,(_thread,cwd)=>`[${cwd}]thread`);await ws.load();
+ await ws.call('c','a','open_page',{url:'about:blank'},liveOwner(),'ProjectA');
+ assert.deepEqual(messages,[{method:'open',title:'[ProjectA]thread'}]);messages.length=0;
+ await ws.call('c','a','open_page',{url:'about:blank'},liveOwner(),'ProjectB');
+ assert.deepEqual(messages,[{method:'open',title:'[ProjectB]thread'},{method:'title',title:'[ProjectB]thread'}]);
+ const active=unwrap(await ws.call('c','a','list_pages',{},liveOwner(),'ProjectB'));
+ assert.deepEqual(active.runtime.cleanup,{enabled:true,controllerRegistered:true,graceMs:30000});
+ await ws.detach('c');
+ const legacy=unwrap(await ws.call('legacy','a','list_pages',{},undefined,'ProjectB'));
+ assert.equal(legacy.runtime.cleanup.controllerRegistered,false);
 });

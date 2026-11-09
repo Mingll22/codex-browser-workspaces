@@ -19,3 +19,11 @@ test('pinned official MCP schemas compile and expose only owned-page parameters'
   }
  }finally{await upstream.close();}
 });
+
+test('empty official page list waits for discovery without rejecting a new target',async()=>{
+ const upstream=new Upstream('http://127.0.0.1:9222');let calls=0;
+ upstream.call=async()=>({structuredContent:++calls===1?{}:{pages:[{id:7,targetId:'owned'}]}});
+ assert.equal((await upstream.mapping(['owned'])).get('owned'),7);assert.equal(calls,2);
+ upstream.call=async()=>({structuredContent:{pages:'invalid'}});
+ await assert.rejects(upstream.mapping(['owned']),/UPSTREAM_CONTRACT_CHANGED/);
+});

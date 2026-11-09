@@ -25,7 +25,7 @@ const manifest=JSON.parse(await readFile(join(staging,'dist/extension/manifest.j
 const extensionId=[...createHash('sha256').update(Buffer.from(manifest.key,'base64')).digest('hex').slice(0,32)].map(c=>String.fromCharCode(97+parseInt(c,16))).join('');
 if(!config){
  const runtime=process.env.XDG_RUNTIME_DIR?join(process.env.XDG_RUNTIME_DIR,'codex-browser-workspaces'):stateDir;
- config={stateDir,socket:join(runtime,'broker.sock'),pairing:{url:`ws://127.0.0.1:${port}`,extensionId,token:randomBytes(32).toString('hex')},browserURL:'http://127.0.0.1:9222',maxTabs:8,detachedTtlMs:null};
+ config={stateDir,socket:join(runtime,'broker.sock'),pairing:{url:`ws://127.0.0.1:${port}`,extensionId,token:randomBytes(32).toString('hex')},browserURL:'http://127.0.0.1:9222',maxTabs:8,detachedTtlMs:null,closedThreadGraceMs:30000};
  await writeFile(configPath,JSON.stringify(config,null,2)+'\n',{mode:0o600});
 }
 if(config.stateDir!==stateDir||config.pairing.extensionId!==extensionId)throw new Error('Existing installation configuration does not match destination state/extension');
