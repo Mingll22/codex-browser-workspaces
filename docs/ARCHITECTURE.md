@@ -1,8 +1,8 @@
 # Architecture and behavior
 
-## Candidate status
+## Installation status
 
-Adapter and extension source version **0.4.0** implement the root-family and page-lease contract below. This candidate is **not deployed**. New-model Windows Chrome acceptance has not run: an isolated official-backend connection was rejected by canonical-root validation of Windows paths, and that protection was not bypassed. See [ACCEPTANCE.md](ACCEPTANCE.md) for the current evidence and blocker; earlier browser acceptance applies to its recorded installed versions.
+The root-family/page-lease model was formally loaded in adapter and extension **0.4.0**. The **0.4.1** acceptance repair keeps that model and fixes returned leases after explicit tab reimport; its popup uses a fixed light appearance without the version/time/diagnostic footer. Installation and observed coverage are recorded separately in [ACCEPTANCE.md](ACCEPTANCE.md) and [PROGRESS.md](PROGRESS.md).
 
 ## Components
 
@@ -63,6 +63,8 @@ Executing operations and operations with an unknown outcome remain held rather t
 
 The move uses the original tab, preserving its current page state without cloning or navigation. It need not still be active. A nonempty family receives it in its existing group; an empty family creates a group from the tab. It becomes the active tab without bringing the OS window to the foreground. Another family's member or another caller's leased page cannot be taken.
 
+A successful explicit tab move hands its still-executing target lease to the new membership before returning a usable handle. Ordinary membership observation continues to revoke old references; this handoff cannot clear UNKNOWN or release cross-family execution occupancy.
+
 External/manual transfers expose `canClose=false`, are not reusable slots, and remain protected by exact target for the extension session, including after later transfers. Page interaction still requires the caller's lease. Explicit close and automatic cleanup both respect this protection. Do not use JavaScript `window.close`, group/window operations or another tool path to bypass it. Managed pages can be explicitly closed, including the family's last managed page. Retention protects a page from automatic cleanup; it does not disable an otherwise permitted explicit close.
 
 Popups inherit the family only when their actual CDP opener maps to a current member. Matching URLs, titles, colors and historical tab IDs never establish ownership. Startup blank tabs are not removed automatically.
@@ -71,7 +73,7 @@ Popups inherit the family only when their actual CDP opener maps to a current me
 
 Only screenshots hold the shared window capture queue. The extension verifies membership, records the previous active tab's exact target, activates the leased capture tab, and restores selection in `finally`. A manual switch during capture is respected. Restoring selection grants no content access to another tab.
 
-No `Page.bringToFront` or OS-window restoration is used. In a minimized window, the official screenshot handler temporarily starts a 1×1 screencast in its page CDP session to keep frames available. Actual output comes from official page/element screenshot methods. Async cleanup is awaited; cancellation stops that frame producer once. Other windows do not start this screencast. Historical acceptance for this path is versioned separately from the unaccepted 0.4.0 candidate.
+No `Page.bringToFront` or OS-window restoration is used. In a minimized window, the official screenshot handler temporarily starts a 1×1 screencast in its page CDP session to keep frames available. Actual output comes from official page/element screenshot methods. Async cleanup is awaited; cancellation stops that frame producer once. Other windows do not start this screencast. Real 0.4 acceptance repeats this path in a disposable minimized window while preserving the shared window and OS foreground.
 
 Page operations use per-page serialization after upstream context refresh; unrelated pages can progress concurrently. The extension's capture recovery timer is separate from a caller's page lease. See [UPSTREAM.md](UPSTREAM.md) for patch boundaries.
 
@@ -95,4 +97,4 @@ Set `closedThreadGraceMs` to `null` to disable process-exit cleanup. Historical 
 
 ## Toolbar and status popup
 
-The toolbar icon shows the number of MCP clients that completed the broker hello handshake, with identified active callers reported separately. The authenticated bridge pushes small count/lease summaries after connection or call changes and on its existing heartbeat; it does not renew page leases. A popup runtime port marks when the status surface is actually open. Only an open popup or an explicit status request queries current group metadata. Unknown/disconnected data stays labelled, and diagnostic copy excludes page data, titles and credentials. See [EXTENSION_UI.md](EXTENSION_UI.md) and the source [visual system](../DESIGN.md).
+The toolbar icon shows the number of MCP clients that completed the broker hello handshake, with identified active callers reported separately. The authenticated bridge pushes small count/lease summaries after connection or call changes and on its existing heartbeat; it does not renew page leases. A popup runtime port marks when the status surface is actually open. Only an open popup or an explicit status request queries current group metadata. Unknown/disconnected data stays labelled. The popup uses a fixed light appearance and shows only connection state, counts, workspaces and refresh; it has no version/time/diagnostic footer or clipboard permission. See [EXTENSION_UI.md](EXTENSION_UI.md) and the source [visual system](../DESIGN.md).

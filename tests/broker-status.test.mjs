@@ -8,6 +8,7 @@ import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import WebSocket from 'ws';
 import {Rpc} from '../dist/adapter/src/rpc.js';
+import {VERSION} from '../dist/adapter/src/version.js';
 
 test('real candidate broker counts hello/disconnect and publishes only safe status summaries',async t=>{
  const dir=await mkdtemp(join(tmpdir(),'cbw-count-'));t.after(()=>rm(dir,{recursive:true,force:true}));
@@ -22,7 +23,7 @@ test('real candidate broker counts hello/disconnect and publishes only safe stat
   const nextStatus=count=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>{peer.off('message',handle);reject(Error('STATUS_NOT_PUBLISHED '+count));},5000);function handle(raw){const message=JSON.parse(raw);if(message.type==='status'&&message.data.mcpConnections===count){clearTimeout(timer);peer.off('message',handle);resolve(message.data);}}peer.on('message',handle);});
   let changed=nextStatus(0);peer.send(JSON.stringify({type:'hello',token,generation:'fixture-generation',version:'0.4.0',pageModelVersion:2}));assert.equal((await changed).activeThreads,0);
   rpc=new Rpc(socket);await rpc.ready;changed=nextStatus(1);await rpc.call('hello',{cwd:process.cwd(),version:'0.4.0'});const status=await changed;
-  assert.equal(status.brokerVersion,'0.4.0');assert.deepEqual(status.leasedTargets,[]);assert.ok(Number.isFinite(status.observedAt));assert.ok(!JSON.stringify(status).includes(token));
+  assert.equal(status.brokerVersion,VERSION);assert.deepEqual(status.leasedTargets,[]);assert.ok(Number.isFinite(status.observedAt));assert.ok(!JSON.stringify(status).includes(token));
   changed=nextStatus(0);rpc.close();await changed;
  }finally{rpc?.close();peer?.terminate();child.kill('SIGTERM');await once(child,'exit');}
 });

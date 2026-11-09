@@ -44,7 +44,9 @@ async function tool(threadId,name,args={}){
 }
 async function start(){
  const r=await request('thread/start',{ephemeral:false,cwd:root,approvalPolicy:'never'}),id=r.thread.id;evidence.fixtureThreads.push(id);
- // If this host does not persist a no-turn thread, fail safely. Never create
+ await request('thread/name/set',{threadId:id,name:'CBW lifecycle fixture'});
+ await request('thread/inject_items',{threadId:id,items:[{type:'message',role:'user',content:[{type:'input_text',text:'Disposable browser lifecycle fixture. No model turn is requested.'}]}]});
+ // Official history writes persist this no-turn fixture; gate on broker visibility. Never create
  // a database row or claim a missing ancestry edge ourselves.
  await until(async()=>{try{await tool(id,'list_pages');return true;}catch(error){if(error.message.includes('THREAD_FAMILY_NOT_READY'))return false;throw error;}},15000,'PERSISTED_FIXTURE_THREAD_NOT_READY');
  return id;
@@ -64,10 +66,11 @@ try{
  await request('initialize',{clientInfo:{name:'cbw-cleanup-fixture',version:'1.0'},capabilities:{experimentalApi:true}});
  child.stdin.write(JSON.stringify({method:'initialized',params:{}})+'\n');
  const a=await start(),b=await start(),c=await start();
- const pa=await tool(a,'open_page',{url:'about:blank'}),pb=await tool(b,'open_page',{url:'about:blank'});
- const pc=await tool(c,'open_page',{url:'about:blank'});await tool(c,'set_page_retention',{pageId:pc.pageId,retained:true});
- const disposable=await tool(c,'open_page',{url:'about:blank',slot:'disposable'});
- const ra=await receipt(pa),rb=await receipt(pb),rc=await receipt(pc),rd=await receipt(disposable);
+ const pa=await tool(a,'open_page',{url:'about:blank'}),ra=await receipt(pa);
+ const pb=await tool(b,'open_page',{url:'about:blank'}),rb=await receipt(pb);
+ const pc=await tool(c,'open_page',{url:'about:blank'}),rc=await receipt(pc);
+ await tool(c,'set_page_retention',{pageId:pc.pageId,retained:true});
+ const disposable=await tool(c,'open_page',{url:'about:blank',slot:'disposable'}),rd=await receipt(disposable);
  if(process.env.CBW_EXPECTED_PROJECT){for(const r of [ra,rb,rc])assert.ok(r.title.startsWith('['+process.env.CBW_EXPECTED_PROJECT+']'));pass('actual fixture groups display the expected project prefix');}
  // Simulate the user inserting this exact disposable external tab into C's group.
  const externalReceipt=await ext.evaluate(`async()=>{const tab=await chrome.tabs.create({windowId:${rc.windowId},active:false,url:'about:blank'});await chrome.tabs.group({tabIds:tab.id,groupId:${rc.groupId}});return {tabId:tab.id,groupId:${rc.groupId},windowId:tab.windowId};}`);
