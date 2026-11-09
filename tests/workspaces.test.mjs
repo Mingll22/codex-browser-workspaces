@@ -377,3 +377,13 @@ test('current membership revokes an idle prior grant even when broker missed the
  const restored=make();await restored.load();bridge.join('a',tab);
  const again=unwrap(await restored.call('new','a','list_pages',{}));assert.equal(again.pages.length,1);await restored.call('new','a','take_snapshot',{pageId:again.pages[0].pageId});
 });
+
+test('completed cleanup stops rescanning protected or retained groups until their family reconnects',async t=>{
+ const {ws,bridge,clock}=await setup(t,{ttl:1000});const page=unwrap(await ws.call('a','a','open_page',{url:'about:blank'}));
+ await ws.call('a','a','set_page_retention',{pageId:page.pageId,retained:true});await ws.call('a','a','release_page',{pageId:page.pageId});
+ bridge.create('a',{source:'external'});await ws.detach('a');clock.advance(LEASE_MS*2);await ws.collect(clock.now());
+ const lists=bridge.requests.filter(request=>request.method==='list').length;
+ await ws.collect(clock.now()+LEASE_MS);assert.equal(bridge.requests.filter(request=>request.method==='list').length,lists);
+ await ws.call('resume','a','list_pages',{});await ws.detach('resume');clock.advance(LEASE_MS*2);await ws.collect(clock.now());
+ assert.ok(bridge.requests.filter(request=>request.method==='list').length>lists);
+});

@@ -10,7 +10,7 @@ import {VERSION} from './version.js';
 import {controllerExited,type ControllerProcess} from './controller-process.js';
 import {PageLeases} from './leases.js';
 interface Actor {root:string;detachedAt:number|null;owner?:ControllerProcess;closedAt?:number}
-interface Workspace {generation:string;closePending?:string}
+interface Workspace {generation:string;closePending?:string;cleanupDone?:boolean}
 interface ThreadDirectory {resolveRoot(caller:string):string;displayTitle(root:string,cwd?:string):string}
 export const textResult=(value:unknown):CallToolResult=>({content:[{type:'text',text:JSON.stringify(value)}]});
 export class Workspaces {
@@ -63,6 +63,7 @@ export class Workspaces {
   }
   async call(connection:string,caller:string,name:string,args:Record<string,any>,owner?:ControllerProcess,clientCwd?:string):Promise<CallToolResult>{
     const root=this.threads?.resolveRoot(caller)??caller;
+    if(this.records[root])delete this.records[root].cleanupDone;
     const previous=this.controllers.attach(connection,caller);if(previous&&this.actors[previous])this.actors[previous].detachedAt=Date.now();
     this.actors[caller]={root,owner,detachedAt:null};await this.persist();
     return this.lock('caller:'+caller,async()=>{
@@ -139,6 +140,7 @@ export class Workspaces {
     if(this.ttlMs===null&&this.closedThreadGraceMs===null)return;
     const errors:unknown[]=[];
     for(const root of Object.keys(this.records))try{await this.lock('family:'+root,async()=>{
+      if(this.records[root].cleanupDone)return;
       // A child may be the family's first browser caller. Its exit cannot prove
       // an unregistered root controller has ended; preserve that family.
       if(!this.actors[root])return;
@@ -156,6 +158,8 @@ export class Workspaces {
         try{await this.bridge.request('close',{threadId:root,tabId:page.tabId,targetId:page.targetId,membershipId:page.membershipId});this.leases.invalidate(this.key(root,generation,page));}
         catch(error:any){if(error.message!=='BRIDGE_DISCONNECTED')record.closePending=page.targetId;await this.persist();throw error;}
       }
+      const remaining=(await this.listing(root)).pages;
+      if(remaining.every(page=>page.retained||page.canClose===false))record.cleanupDone=true;
       await this.persist();
     });}catch(error){errors.push(error);}
     if(errors.length)throw errors[0];

@@ -2,7 +2,7 @@
 
 ## 0.4.0 root-family and page-lease candidate, 2026-11-09
 
-The source and artifacts are a **candidate**, not the currently loaded installation. `npm run build && npm test` passed **146/146** local checks. These checks use disposable Chrome API/bridge fixtures, temporary read-only SQLite databases and a controlled clock; the five-minute boundary was simulated, not observed for five wall-clock minutes. Script-level checks include exact-state forward/rollback restoration and a state write followed by a simulated lost response. The prior version's browser evidence below remains historical.
+The source and artifacts are a **candidate**, not the currently loaded installation. `npm run build && npm test` passed **148/148** local checks. These checks use disposable Chrome API/bridge fixtures, temporary read-only SQLite databases and a controlled clock; the five-minute boundary was simulated, not observed for five wall-clock minutes. Script-level checks include exact-state forward/rollback restoration and a state write followed by a simulated lost response. The prior version's browser evidence below remains historical.
 
 Real Codex metadata was checked for a root, child and grandchild: each MCP call used a different actual caller ID, and two real `thread_spawn_edges` led to the same root. The candidate directory resolved the grandchild with three synchronous queries, cached all three mappings and retained one read-only connection. Formal `list_pages` calls by those agents returned zero pages through installed adapter **0.3.3 / extension 0.3.1**. This proves actual identity and candidate resolution, not 0.4 grouping or leases in Chrome. Local detailed evidence stays in ignored `.artifacts/root-family-identity-evidence.json`.
 
@@ -33,7 +33,7 @@ The 0.4 candidate includes 16/32/48/128px geometric grouped-page icons and a too
 
 The popup was rendered through the official MCP in real Chrome at 380 CSS pixels in connected, disconnected, empty, timeout/error and long-title states, using prominently labelled sample data. Screenshots, keyboard-focused full-name tooltip, refresh-enabled recovery and successful copy feedback were inspected. No horizontal overflow was measured. The independent review's stale-data label and keyboard-title findings were both fixed and rescored resolved; its final `ship` disposition covers the fixture UI only. Temporary viewport overrides were restored and both exact own preview targets were queried absent after closing. Evidence is local under ignored `.artifacts/ui/`.
 
-The installed-extension popup/toolbar and actual live broker-to-popup numbers still require admin loading. Their source/bridge/DOM fixtures passed; this is separate from a live installed-extension acceptance.
+The installed-extension popup/toolbar and actual live broker-to-popup numbers still require admin loading. Their source/bridge/DOM fixtures passed, including a separate actual candidate broker process whose registered MCP hello/disconnect changes authenticated WebSocket counts 0 → 1 → 0; this is separate from a live installed-extension acceptance.
 
 ## Historical deployed-version evidence
 
