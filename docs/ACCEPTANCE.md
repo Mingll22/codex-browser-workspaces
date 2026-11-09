@@ -4,19 +4,19 @@
 
 Adapter and extension **0.4.0** were formally loaded with page model 2 and upstream **1.11.0**. Migration preserved the extension generation and exact tab/target/group/window receipts, with no family multi-group conflict, group-name matching, browser restart or login/profile replacement. Admin/code allowlists contain 27 tools and design retains its 24-tool subset. A fresh client loads the installed stdio code; already-running TUI tool catalogs need their own reconnect/reload before exposing newly allowed tools.
 
-The **0.4.1** follow-up repairs a real reimport failure and applies the user's fixed-light, footer-free popup. Five additional lease/workspace regressions bring the local checks to **153/153**. Those checks remain fixtures: the new real evidence below is separate. Local detailed receipts, failures, screenshots, cleanup and installation reports are private runtime artifacts rather than public-source test data.
+The formally loaded **0.4.1** follow-up repairs a real reimport failure and applies the user's fixed-light, footer-free popup. Five additional lease/workspace regressions bring the local checks to **153/153**. Those checks remain fixtures: the new real evidence below is separate. Local detailed receipts, failures, screenshots, cleanup and installation reports are private runtime artifacts rather than public-source test data.
 
 | Acceptance behavior | Observed real 0.4 evidence | Limits or follow-up |
 | --- | --- | --- |
 | Manual drag-in/out/back | Exact original targets appear/disappear with current membership; old handles fail | Test-owned objects only |
 | A → independent B transfer | A loses access; B sees the original target as external/protected | No real user page moved |
 | Active discovery independent of move | Discover X, activate Y, then import the original X | State nonce and target remain stable |
-| Empty family imports original tab | No extra blank tab or refresh; a repeated import exposed an immediately expired returned lease | 0.4.1 adds an executing-grant membership handoff and requires live repair retest |
+| Empty family imports original tab | No extra blank tab or refresh; a repeated import exposed an immediately expired returned lease | 0.4.1 live retest: returned grant immediately reads the unchanged document nonce |
 | Position/order/lease gaps | Four disposable tabs follow actual Chrome reorder; real family caller filtering preserves original positions | Positions are interpreted from the full group before filtering |
 | Root/child/grandchild and independent family | Real native caller IDs and official spawn edges share one exact group; independent no-model host roots use separate groups | No guessed or database-inserted identity |
 | Sibling race/old ID denial | Concurrent real children: one evaluate succeeds, the other gets PAGE_LEASE_BUSY before execution and its list hides the target | The losing action is never replayed |
 | List/renewal/old UID | List does not change lease timestamps; page operation renews; release/idle expiry rejects old ID and UID | Actual idle observation exceeded five wall-clock minutes |
-| In-flight/timeout/UNKNOWN | A bounded live action excludes another root; known wait timeout settles without UNKNOWN | UNKNOWN across the real expiry boundary and its exact reconciliation are recorded by the admin run |
+| In-flight/timeout/UNKNOWN | A bounded live action excludes another root; known wait timeout settles without UNKNOWN | Real UNKNOWN remains protected after wall-clock expiry; only an observed exact DONE receipt permits the admin stop-window reconciliation |
 | External close protection | Explicit close refuses imported pages despite retention changes; process-exit cleanup preserves external/retained pages | Fixture closure is an exact simulated user action |
 | Single/main/last/group closure | Missing targets remain absent across list, old-ID use and host reconnect | No automatic blank-tab recreation |
 | One child ends | A descendant ends while another family actor continues; exact target/group receipts survive | Host completion and registered process exit are distinguished |
@@ -27,7 +27,7 @@ Real lifecycle fixtures use official host thread/name/set and thread/inject_item
 
 ## Extension popup
 
-The toolbar badge uses actual registered MCP connections. The installed 0.4 popup was checked against broker counts and current Chrome groups; its copy action was historically exercised before the user removed that feature. The current 0.4.1 surface is fixed light, with connection, metrics, workspaces and refresh only; it removes the entire version/time/diagnostic footer and clipboardWrite permission. Unknown values and stale/error notices stay explicit, and long titles remain keyboard accessible. Final loaded light-theme screenshots and interactions are recorded by admin; historical dark/sample screenshots do not establish current UI acceptance.
+The toolbar badge uses actual registered MCP connections. The installed 0.4 popup was checked against broker counts and current Chrome groups; its copy action was historically exercised before the user removed that feature. The current 0.4.1 surface is fixed light, with connection, metrics, workspaces and refresh only; it removes the entire version/time/diagnostic footer and clipboardWrite permission. Unknown values and stale/error notices stay explicit, and long titles remain keyboard accessible. The loaded light panel was screenshot-inspected at 380 CSS px: white background, no footer or clipboard permission, live counts match, long-title focus/tooltip and Escape work. Real hello/disconnect changes the badge 1 → 2 → 1. Historical dark/sample screenshots do not establish current UI acceptance.
 
 ## Historical deployed-version evidence
 
