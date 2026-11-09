@@ -80,24 +80,42 @@ tool_timeout_sec = 90
 
 Use the generated paths; do not paste the placeholders literally. Project-specific profile allowlists, if any, must permit the intended workspace tools and forwarded page tools. The optional `render-admin-diff.py` is a maintainer helper for a particular multi-profile layout, not a required installer step.
 
-Reconnect the MCP client. Open a disposable page, list only that thread's pages, read it, take a screenshot, and close it. Confirm ordinary tabs were not adopted and Chrome did not take OS focus. Do not use `reset_workspace` to adopt an unrelated existing group.
+Reconnect the MCP client. Open a disposable page, list only that thread's pages, read it, take a screenshot, and close it. Confirm only current real group members are visible under the caller lease, external members have canClose=false, and Chrome did not take OS focus. Do not use `reset_workspace` to adopt an unrelated existing group.
+
+## Leases and family cleanup
+
+One real spawn family shares one group; each actual caller owns its own page leases. A list does not claim or renew. Page reads/operations grant five minutes; expired grants require a newly listed handle and fresh page state. Executing or UNKNOWN calls remain occupied past expiry. `release_page` releases an idle known lease, without closing the page or making external work disposable. There is no perpetual heartbeat.
+
+The existing `closedThreadGraceMs` default remains 30000. Cleanup considers every registered family actor separately, including live disconnected processes. One child ending cannot clear a live family. Cleanup also skips retained, protected, leased, executing and UNKNOWN pages. Optional `detachedTtlMs` remains null. Historical groups without process evidence are preserved. Reconnect clients after upgrade to register their actual processes and refresh the tool schemas.
 
 ## Source upgrades
 
-Use a reviewed source checkout with its dependencies installed. Close or finish active tool requests first. Supply a current **owned target ID** (the last component of a returned pageId) and the WSL path to the installed Windows extension directory:
+Use the canonical source checkout at `/home/mingll/data/codex-browser-workspaces` for this installation. The former `codex-browser-workspaces-thread-cleanup` linked worktree is retired after its source/evidence integration; it is not a second installation. Build output is `dist`, the formal WSL installation remains `~/.local/share/codex-browser-workspaces`, runtime/pairing data remains `~/.local/state/codex-browser-workspaces`, and the Windows extension remains `%LOCALAPPDATA%\CodexBrowserWorkspaces\extension`. Do not delete these distinct runtime roles as duplicate source. Build output includes dist/build-info.json with the source commit, dirty flag, versions and build time. Installer installation.json preserves that build receipt even when installed from an extracted archive, alongside its source location. `--stage-only` creates a reviewable candidate without replacing the formal directory or service.
+
+0.4 requires a matching page model (`pageModelVersion=2` in the bridge hello), plus the toolbar popup assets and clipboardWrite permission for user-requested diagnostic copy. Independent component version numbers alone are not a compatibility check. Old loaded extensions are rejected with `EXTENSION_UPGRADE_REQUIRED`; legacy state is rejected with `WORKSPACE_FAMILY_MIGRATION_REQUIRED` until an exact migration is staged. This keeps old per-thread groups from silently becoming independent family groups.
+
+An admin must coordinate a quiet interval with all browser callers. Use an exact current owned **target ID**, not the final component of the versioned public pageId. The old pageId format places target last; the 0.4 handle also contains membership and grant versions and must be treated as opaque. Preserve all original files and state receipts. Do not stop or restart Chrome.
 
 ```bash
-node scripts/upgrade.mjs \
-  --anchor OWNED_TARGET_ID \
+node scripts/snapshot-family-state.mjs OWNED_TARGET_ID .artifacts/family-before.json
+node scripts/plan-family-migration.mjs --input .artifacts/family-before.json --output .artifacts/family-plan.json
+node scripts/upgrade.mjs --anchor OWNED_TARGET_ID \
+  --family-plan .artifacts/family-plan.json \
   --extension-dir /mnt/c/Users/YOUR_WINDOWS_USER/AppData/Local/CodexBrowserWorkspaces/extension
 ```
 
-The script builds/tests, stages artifacts, requires an idle broker, saves exact live-target receipts, updates the adapter/extension and verifies generation and ownership after reconnect. It stops only the broker, not Chrome. `UPGRADE_BUSY` is a request to wait for in-flight work to finish, not to bypass the protection. Do not run acceptance/browser calls concurrently with this upgrade.
+The first two commands only inspect the exact project worker and write local files. The planner uses the broker's `CODEX_HOME` database, preserving the generation and exact group IDs. A family with multiple real groups returns their exact IDs for resolution; it never merges by title, moves real pages, closes them or changes login state. Empty/closed history stays empty. The stage step rechecks all actual group members immediately before applying the plan; added/moved/replaced objects require a fresh snapshot and plan.
 
-Use `--adapter-only` only when extension version and code are already identical; it avoids extension reload. Non-default installations also need their explicit `--destination` and `--state-dir`.
+The upgrade command builds/tests, stages the installation, requires an idle broker, retains both artifact and extension backups, stops only the broker, stages model state, starts the new listener and reloads only this project extension. It verifies versions, generation and complete live receipts. It saves the original complete extension state as a separate rollback plan; even an uncertain staging result attempts restoration under the same exact receipt checks. No window relocation is performed. The script-level plan/rollback fixture is tested; the formal 0.4 transition has not been executed in the current code task.
+
+`--adapter-only` requires the exact extension version already loaded and is unsuitable for the 0.3 → 0.4 model transition. If initial extension loading requires human Chrome UI, use the normal unpacked-extension steps. A Windows/WSL path/root rejection from the official install tool is a concrete capability boundary; do not relax roots or restart the shared browser to bypass it.
+
+For this managed installation, code prepares the artifact/configuration diffs; admin applies formal service, extension and Profile changes. The admin report records the actual source commit, candidate paths and loading/acceptance sequence.
 
 ## Rollback
 
 The installation and upgrade receipts identify retained artifact backups. `scripts/rollback-install.mjs INSTALLED_DIRECTORY` restores the prior WSL installation files without touching state; coordinate service stop/start and any matching Windows extension rollback separately. After multiple upgrades, the immediate previous backup may be an intermediate candidate: verify the intended version before restoring it.
 
 Do not replace current workspace ledgers, pairing configuration, cookies or profile data with an old snapshot. Changing installed files does not recover arbitrary browser state after a full browser restart.
+
+Before browser work resumes, a failed upgrade can restore the saved original extension mapping with exact unchanged receipts and the corresponding artifact backups. After new page activity or group movement, do not blindly replay an old snapshot: take a fresh snapshot and reconcile the exact objects. UNKNOWN page executions require observed terminal evidence before an admin clears that specific lease record; neither timeout nor five idle minutes proves termination.

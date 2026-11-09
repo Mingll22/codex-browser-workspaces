@@ -1,8 +1,10 @@
+import {execFileSync} from 'node:child_process';
 import {mkdir,cp,readFile,writeFile} from 'node:fs/promises';
 import {generateKeyPairSync,createHash,randomBytes} from 'node:crypto';
 const root=new URL('../',import.meta.url);
 await mkdir(new URL('dist/extension/',root),{recursive:true});
 await cp(new URL('packages/extension/',root),new URL('dist/extension/',root),{recursive:true});
+await cp(new URL('dist/protocol/src/contracts.js',root),new URL('dist/extension/contracts.js',root));
 const manifest=JSON.parse(await readFile(new URL('dist/extension/manifest.json',root),'utf8'));
 // Public manifest key gives the unpacked extension a stable, origin-checkable ID.
 const keyPath=new URL('packages/extension/public-key.txt',root);
@@ -18,3 +20,8 @@ try{config=JSON.parse(await readFile(configPath,'utf8'));}catch(e){if(e.code!=='
 if(config.extensionId!==extensionId)throw new Error('Pairing origin differs from manifest key');
 await writeFile(new URL('dist/extension/config.js',root),'export const config = '+JSON.stringify({url:config.url,token:config.token})+';\n',{mode:0o600});
 console.log('Built extension',extensionId);
+
+const packageInfo=JSON.parse(await readFile(new URL('package.json',root),'utf8'));
+const sourceCommit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+const dirty=execFileSync('git',['status','--porcelain'],{cwd:root,encoding:'utf8'}).trim().length>0;
+await writeFile(new URL('dist/build-info.json',root),JSON.stringify({sourceCommit,dirty,version:packageInfo.version,upstream:'1.11.0',pageModelVersion:2,builtAt:new Date().toISOString()},null,2)+'\n');

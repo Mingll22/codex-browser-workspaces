@@ -7,7 +7,7 @@ output=[]
 for profile in ['code','design','admin']:
  path=pathlib.Path.home()/'.codex'/f'{profile}.config.toml';before=path.read_text();config=tomllib.loads(before)
  old=config['mcp_servers']['chrome-devtools'];tools=[name for name in old.get('enabled_tools',sorted(allowed)) if name in allowed]
- for name in ['open_page','set_page_retention','reset_workspace']:
+ for name in ['open_page','get_active_tab','move_tab_to_workspace','release_page','set_page_retention','reset_workspace']:
   if name not in tools:tools.append(name)
  match=re.search(r'^\[mcp_servers\.chrome-devtools\]\n[\s\S]*?(?=^\[|\Z)',before,re.M)
  if not match:raise RuntimeError('No raw Chrome entry in '+str(path))

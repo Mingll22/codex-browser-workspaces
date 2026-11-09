@@ -1,3 +1,4 @@
+// HISTORICAL 0.3 integration using prior owned test receipts.
 import {Rpc} from '../dist/adapter/src/rpc.js';
 import {readFile,writeFile} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
@@ -7,6 +8,8 @@ import {monitorForeground} from './foreground-monitor.mjs';
 const execute=promisify(execFile);
 const foreground=async()=>Number((await execute('/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command','Add-Type -Name CBWFocus -Namespace Win32 -MemberDefinition \'[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();\'; [Win32.CBWFocus]::GetForegroundWindow().ToInt64()'])).stdout.trim());
 const cfg=JSON.parse(await readFile(process.env.CBW_TEST_CONFIG??'.artifacts/dev-config.json','utf8'));
+const historicalHealth=await (await fetch(cfg.pairing.url.replace('ws:','http:')+'/health')).json();
+assert.match(historicalHealth.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: replayed prior CLI receipts target 0.3; use the 0.4 acceptance matrix');
 const prefix=process.env.CBW_TEST_PREFIX??'acceptance';
 const output=process.env.CBW_TEST_OUTPUT??'screenshot';
 const clients=[];const result={samples:[],focusBefore:await foreground()};

@@ -1,5 +1,6 @@
 import {homedir} from 'node:os';
-// Disposable local form/dialog/upload cases against the installed stdio + real Windows Chrome.
+// HISTORICAL 0.3.x form/dialog/upload cases against installed stdio + real Chrome.
+// Synthetic identities are unsupported by the 0.4 root-family resolver.
 // Synthetic identities are test fixtures, never existing Codex thread identities.
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
@@ -12,6 +13,8 @@ import {extensionTestClient} from '../scripts/extension-test-client.mjs';
 import {openerTarget} from '../dist/adapter/src/target-identity.js';
 const [configPath,out,anchor]=process.argv.slice(2);assert.ok(configPath&&out);
 const config=JSON.parse(await readFile(configPath,'utf8'));
+const baseline=await (await fetch(config.pairing.url.replace('ws:','http:')+'/health')).json();
+assert.match(baseline.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: synthetic dialog identities cannot run on 0.4; use its acceptance matrix');
 const id=randomUUID(),fixtureRoot=process.env.CBW_WINDOWS_FIXTURE_ROOT;
 assert.ok(fixtureRoot?.startsWith('/mnt/'),'Set CBW_WINDOWS_FIXTURE_ROOT to a disposable Windows-mounted test directory');
 const mountFolder=join(fixtureRoot,`dialog-fixture-${id}`);
@@ -147,7 +150,7 @@ try{
   await click(a,label);let listing;
   for(let n=0;n<20;n++){listing=await a.json('list_pages');if(listing.pages.length>before.pages.length)break;await new Promise(r=>setTimeout(r,100));}
   const candidates=await ext.evaluate(`async()=>{const targets=await chrome.debugger.getTargets();return targets.filter(t=>t.type==='page'&&!${JSON.stringify(oldTargets)}.includes(t.id)).map(t=>({targetId:t.id,tabId:t.tabId}));}`);
-  for(const receipt of candidates)if(await openerTarget(config.browserURL,receipt.targetId)===a.page.split(':').at(-1))orphanReceipts.push(receipt);
+  for(const receipt of candidates)if(await openerTarget(config.browserURL,receipt.targetId)===a.page.split(':')[2])orphanReceipts.push(receipt);
   const popup=listing.pages.find(p=>!known.has(p.pageId));assert.ok(popup,'Popup must be registered');assert.match(popup.url,/\/popup/);
   const result=await a.call('take_snapshot',{pageId:popup.pageId});assert.match(text(result),/Fixture popup/);
   const other=await b.json('list_pages');assert.equal(other.pages.length,1);const forbidden=await b.raw('take_snapshot',{pageId:popup.pageId});assert.equal(forbidden.isError,true);await a.call('close_page',{pageId:popup.pageId});return {popup,foreignError:text(forbidden)};

@@ -4,11 +4,11 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const stage=root+'/.artifacts/release';await rm(stage,{recursive:true,force:true});await mkdir(stage,{recursive:true,mode:0o700});
-for(const path of ['dist','node_modules','package.json','package-lock.json','README.md','README.zh-CN.md','CONTRIBUTING.md'])await cp(root+'/'+path,stage+'/'+path,{recursive:true,verbatimSymlinks:true});
+for(const path of ['dist','node_modules','package.json','package-lock.json','README.md','README.zh-CN.md','CONTRIBUTING.md','DESIGN.md'])await cp(root+'/'+path,stage+'/'+path,{recursive:true,verbatimSymlinks:true});
 await mkdir(stage+'/docs',{recursive:true});
-for(const name of ['INSTALL.md','ARCHITECTURE.md','UPSTREAM.md','ACCEPTANCE.md','COMPARISON.md']){
+for(const name of ['INSTALL.md','ARCHITECTURE.md','UPSTREAM.md','ACCEPTANCE.md','COMPARISON.md','EXTENSION_UI.md']){
  const source=root+'/docs/'+name;
- if(name==='COMPARISON.md'&&!existsSync(source))continue;
+ if(['COMPARISON.md','EXTENSION_UI.md'].includes(name)&&!existsSync(source))continue;
  await cp(source,stage+'/docs/'+name);
 }
 for(const entry of await readdir(root,{withFileTypes:true})){

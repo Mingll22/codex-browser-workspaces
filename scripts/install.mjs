@@ -3,6 +3,7 @@ import {mkdir,cp,readFile,writeFile,rename,stat} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {execFileSync} from 'node:child_process';
 import {randomBytes,createHash} from 'node:crypto';
 const args=process.argv.slice(2);
 function option(key,fallback){const index=args.indexOf(key);return index<0?fallback:args[index+1];}
@@ -16,7 +17,7 @@ let previous=null;
 try{await stat(destination);previous=destination+'-backup-'+stamp;}catch(e){if(e.code!=='ENOENT')throw e;}
 const staging=destination+'-staging-'+stamp;
 await mkdir(staging,{recursive:true,mode:0o700});
-for(const path of ['dist','node_modules','package.json','package-lock.json','scripts','docs','LICENSE','NOTICE','README.md','README.zh-CN.md','CONTRIBUTING.md'])await cp(join(source,path),join(staging,path),{recursive:true,verbatimSymlinks:true});
+for(const path of ['dist','node_modules','package.json','package-lock.json','scripts','docs','LICENSE','NOTICE','README.md','README.zh-CN.md','CONTRIBUTING.md','DESIGN.md'])await cp(join(source,path),join(staging,path),{recursive:true,verbatimSymlinks:true});
 await mkdir(stateDir,{recursive:true,mode:0o700});
 const configPath=join(stateDir,'config.json');
 let config;
@@ -25,7 +26,7 @@ const manifest=JSON.parse(await readFile(join(staging,'dist/extension/manifest.j
 const extensionId=[...createHash('sha256').update(Buffer.from(manifest.key,'base64')).digest('hex').slice(0,32)].map(c=>String.fromCharCode(97+parseInt(c,16))).join('');
 if(!config){
  const runtime=process.env.XDG_RUNTIME_DIR?join(process.env.XDG_RUNTIME_DIR,'codex-browser-workspaces'):stateDir;
- config={stateDir,socket:join(runtime,'broker.sock'),pairing:{url:`ws://127.0.0.1:${port}`,extensionId,token:randomBytes(32).toString('hex')},browserURL:'http://127.0.0.1:9222',maxTabs:8,detachedTtlMs:null};
+ config={stateDir,socket:join(runtime,'broker.sock'),pairing:{url:`ws://127.0.0.1:${port}`,extensionId,token:randomBytes(32).toString('hex')},browserURL:'http://127.0.0.1:9222',maxTabs:8,detachedTtlMs:null,closedThreadGraceMs:30000};
  await writeFile(configPath,JSON.stringify(config,null,2)+'\n',{mode:0o600});
 }
 if(config.stateDir!==stateDir||config.pairing.extensionId!==extensionId)throw new Error('Existing installation configuration does not match destination state/extension');
@@ -35,7 +36,9 @@ await writeFile(join(staging,'admin-mcp.toml'),toml);
 const quote=value=>'"'+value.replaceAll('\\','\\\\').replaceAll('"','\\"')+'"';
 const unit=`[Unit]\nDescription=Codex Browser Workspaces (local)\n\n[Service]\nType=simple\nExecStart=${[process.execPath,join(destination,'dist/adapter/src/broker.js'),configPath].map(quote).join(' ')}\nWorkingDirectory=${destination}\nRestart=on-failure\nRestartSec=3\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
 await writeFile(join(staging,'codex-browser-workspaces.service'),unit);
-await writeFile(join(staging,'installation.json'),JSON.stringify({destination,stateDir,configPath,previous,installedAt:new Date().toISOString()},null,2)+'\n');
+let buildInfo;try{buildInfo=JSON.parse(await readFile(join(source,'dist/build-info.json'),'utf8'));}catch(error){if(error.code!=='ENOENT')throw error;}
+let sourceCommit=buildInfo?.sourceCommit??null;try{sourceCommit??=execFileSync('git',['-C',source,'rev-parse','HEAD'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();}catch{}
+await writeFile(join(staging,'installation.json'),JSON.stringify({source,sourceCommit,buildInfo,destination,stateDir,configPath,previous,installedAt:new Date().toISOString()},null,2)+'\n');
 if(args.includes('--stage-only')){console.log(JSON.stringify({staging,destination,stateDir,previous,config:configPath}));process.exit(0);}
 if(previous)await rename(destination,previous);
 try{await rename(staging,destination);}catch(error){if(previous)await rename(previous,destination);throw error;}

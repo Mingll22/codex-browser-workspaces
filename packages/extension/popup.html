@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Browser Workspaces</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="header">
+    <img class="brand-icon" src="icons/icon32.png" width="32" height="32" alt="">
+    <div class="brand"><h1>Browser Workspaces</h1><span>Codex</span></div>
+    <div id="connection" class="connection" data-state="unknown" role="status"><span class="dot"></span><span id="connection-label">正在连接</span></div>
+    <button id="refresh" class="icon-button" type="button" aria-label="刷新状态" title="刷新状态">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.7 9A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 12.3-3"/></svg>
+    </button>
+  </header>
+  <main>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="metrics" aria-label="状态概览">
+      <div class="metric"><span class="metric-label" tabindex="0" aria-describedby="metrics-help">MCP 连接<span id="metrics-help" class="tooltip" role="tooltip">MCP 连接为会话数；活跃线程为已识别的调用线程数。</span></span><strong id="mcp-count">—</strong></div>
+      <div class="metric"><span>活跃线程</span><strong id="thread-count">—</strong></div>
+      <div class="metric"><span>工作区</span><strong id="workspace-count">—</strong></div>
+    </section>
+    <section class="workspaces" aria-labelledby="workspace-heading">
+      <div class="section-heading"><h2 id="workspace-heading">工作区</h2></div>
+      <div id="workspace-list" class="workspace-list" aria-live="polite"><div class="empty">正在获取状态…</div></div>
+    </section>
+  </main>
+  <footer class="footer">
+    <div class="footer-info"><span id="versions">扩展 — · Broker —</span><span id="updated">尚未更新</span></div>
+    <button id="copy" class="copy-button" type="button">复制诊断信息</button>
+  </footer>
+  <div id="workspace-tooltip" class="tooltip workspace-tooltip" role="tooltip" hidden></div>
+  <div id="feedback" class="sr-only" aria-live="polite"></div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

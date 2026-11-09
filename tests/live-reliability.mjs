@@ -1,6 +1,7 @@
 import {join} from 'node:path';
 import {homedir} from 'node:os';
-// Real Chrome / installed stdio, two disposable synthetic identities. No existing thread impersonation.
+// HISTORICAL 0.3.x: synthetic identities and post-UNKNOWN same-page recovery
+// predate 0.4's registered families and explicit execution quarantine.
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {writeFile,readFile} from 'node:fs/promises';
@@ -9,6 +10,8 @@ import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {extensionTestClient} from '../scripts/extension-test-client.mjs';
 const [anchor,configPath,output]=process.argv.slice(2);
 const config=JSON.parse(await readFile(configPath,'utf8')),url=config.pairing.url.replace('ws:','http:')+'/health';
+const baseline=await (await fetch(url)).json();
+assert.match(baseline.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: synthetic reliability identities are unsupported on 0.4; use its acceptance matrix');
 const evidence={layer:'installed stdio + official Chrome MCP; two synthetic fixture identities',checks:[],timings:{}};
 const clients=[];let ext;
 async function fixture(){
@@ -25,7 +28,7 @@ async function observe(tabId,title){for(let i=0;i<50;i++){if(await ext.evaluate(
 try{
  ext=await extensionTestClient(anchor);const a=await fixture(),b=await fixture();
  const ap=await a.json('open_page',{url}),bp=await b.json('open_page',{url});evidence.threads=[a.thread,b.thread];
- const tabId=await ext.evaluate(`async()=> (await chrome.debugger.getTargets()).find(t=>t.id===${JSON.stringify(ap.pageId.split(':').at(-1))}).tabId`);
+ const tabId=await ext.evaluate(`async()=> (await chrome.debugger.getTargets()).find(t=>t.id===${JSON.stringify(ap.pageId.split(':')[2])}).tabId`);
  const status=await a.json('list_pages');assert.equal(status.runtime.adapter,'0.3.1');assert.equal(status.runtime.extension,'0.3.1');assert.equal(status.runtime.client,'0.3.1');assert.equal(status.runtime.reconnectRecommended,false);assert.equal(status.workspace.status,'READY');pass('running adapter, extension and fresh stdio report matching 0.3.1');
  await b.call('evaluate_script',{pageId:bp.pageId,function:`()=>{document.body.innerHTML='<button id="count">Count</button>';globalThis.count=0;document.querySelector('#count').onclick=()=>globalThis.count++;return true;}`,waitForStableDom:false});
  const snapshot=await b.call('take_snapshot',{pageId:bp.pageId});const uid=snapshot.content.map(x=>x.text??'').join('\n').split('\n').find(l=>l.includes('button "Count"'))?.match(/uid=(\S+)/)?.[1];assert.ok(uid);

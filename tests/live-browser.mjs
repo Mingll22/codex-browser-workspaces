@@ -1,3 +1,4 @@
+// HISTORICAL 0.3 acceptance; not a current-model fixture.
 // Explicit real-browser acceptance. Identities come from preceding real CLI transcripts.
 // Replayed metadata here proves the adapter protocol, not an additional live CLI lifecycle.
 import assert from 'node:assert/strict';
@@ -7,6 +8,9 @@ import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import {fileURLToPath} from 'node:url';
 const root=new URL('../',import.meta.url);
 const config=process.env.CBW_TEST_CONFIG??fileURLToPath(new URL('.artifacts/dev-config.json',root));
+const historicalConfig=JSON.parse(await readFile(config,'utf8'));
+const historicalHealth=await (await fetch(historicalConfig.pairing.url.replace('ws:','http:')+'/health')).json();
+assert.match(historicalHealth.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: old CLI receipt replay targets 0.3; use the 0.4 acceptance matrix');
 const prefix=process.env.CBW_TEST_PREFIX??'acceptance';
 const transcript=async name=>(await readFile(new URL(`.artifacts/${name}-cli.jsonl`,root),'utf8')).trim().split('\n').map(JSON.parse);
 const aId=(await transcript(prefix+'-a')).find(x=>x.type==='thread.started').thread_id;
@@ -60,7 +64,7 @@ try {
  const popupButton=popupSnapshot.content[0].text.split('\n').find(x=>x.includes('button "Open test popup"')).match(/uid=(\S+)/)[1];
  await a.call('click',{pageId:edit.pageId,uid:popupButton});
  let popup;
- for(let n=0;n<20;n++){popup=(await a.json('list_pages')).pages.find(p=>p.slot.startsWith('popup-'));if(popup)break;await new Promise(r=>setTimeout(r,100));}
+ for(let n=0;n<20;n++){popup=(await a.json('list_pages')).pages.find(p=>p.slot?.startsWith('popup-'));if(popup)break;await new Promise(r=>setTimeout(r,100));}
  assert.ok(popup);assert.ok(!(await b.json('list_pages')).pages.some(p=>p.pageId===popup.pageId));passed('opener popup joins only its owning thread');
  while((await a.json('list_pages')).pages.length<8){const count=(await a.json('list_pages')).pages.length;await a.json('open_page',{url:`${url}/limit-${count}`,slot:`limit-${count}`});}
  await denied(a.raw('open_page',{url:`${url}/over-limit`,slot:'over-limit'}),'TAB_LIMIT_REACHED');assert.equal((await a.json('list_pages')).pages.length,8);

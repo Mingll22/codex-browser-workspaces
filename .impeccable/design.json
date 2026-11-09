@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-09T05:41:25Z",
+  "title": "Design System: Codex Browser Workspaces Popup",
+  "extensions": {
+    "colorMeta": {
+      "blue": {"role": "primary", "displayName": "操作与焦点蓝"},
+      "bg": {"role": "neutral", "displayName": "弹窗底色"},
+      "surface": {"role": "neutral", "displayName": "统计表面"},
+      "line": {"role": "neutral", "displayName": "分隔描边"},
+      "text": {"role": "neutral", "displayName": "主文字"},
+      "muted": {"role": "neutral", "displayName": "次要文字"},
+      "green": {"displayName": "连接正常"},
+      "amber": {"displayName": "状态不可用"}
+    },
+    "shadows": [
+      {"name": "tooltip", "value": "0 4px 12px #0006", "purpose": "仅提示浮层使用，常态列表与统计表面没有阴影。"}
+    ],
+    "provenance": {
+      "sourcePaths": ["packages/extension/popup.html", "packages/extension/popup.css", "packages/extension/popup.js", "packages/extension/status.js", "packages/extension/worker.js", "packages/adapter/src/broker.ts"],
+      "sourceFacts": [
+        "范围仅限当前扩展 popup；前置视觉方向来自用户的 ScriptCat 参考。",
+        "布局宽 380px、max-width 100vw；列表最大高 256px；标题浮层左右 16px、最大高 50vh。",
+        "当前 CSS 没有媒体查询、动画或过渡 token；未生成不存在的 tonal ramps。",
+        "正式扩展尚未加载；真实统计仅经 Broker/worker 代码与 fixture 验证。",
+        "截图 .artifacts/ui/connected.png、error.png、long-focus.png 是 Chrome 中 fixture 的示例数据。"
+      ]
+    }
+  },
+  "components": [
+    {
+      "name": "刷新状态",
+      "kind": "button",
+      "refersTo": "refresh-button",
+      "description": "头部刷新操作；请求期间禁用。",
+      "html": "<button class=\"ds-refresh\" type=\"button\" aria-label=\"刷新状态\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20 7v5h-5M4 17v-5h5\"/><path d=\"M5.7 9A7 7 0 0 1 18 6l2 1M4 17l2 1a7 7 0 0 0 12.3-3\"/></svg></button>",
+      "css": ".ds-refresh{width:30px;height:30px;display:grid;place-items:center;border:1px solid var(--line);border-radius:7px;background:transparent;color:#c4d0dd;cursor:pointer}.ds-refresh svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.ds-refresh:hover{background:#303947;color:#fff}.ds-refresh:focus-visible{outline:2px solid var(--blue);outline-offset:2px}.ds-refresh:disabled{opacity:.5;cursor:wait}"
+    },
+    {
+      "name": "复制诊断信息",
+      "kind": "button",
+      "refersTo": "copy-button",
+      "description": "底部紧凑文字按钮。",
+      "html": "<button class=\"ds-copy\" type=\"button\">复制诊断信息</button>",
+      "css": ".ds-copy{border:1px solid var(--line);border-radius:6px;padding:6px 8px;color:#d5e1ee;background:transparent;cursor:pointer;font-family:system-ui,-apple-system,\"Segoe UI\",\"Microsoft YaHei\",sans-serif;font-size:11px}.ds-copy:hover{background:#303947;color:#fff}.ds-copy:focus-visible{outline:2px solid var(--blue);outline-offset:2px}"
+    },
+    {
+      "name": "连接状态",
+      "kind": "chip",
+      "refersTo": "connection-connected",
+      "description": "文字与圆点共同表达连接；data-state 切换不可用状态。",
+      "html": "<span class=\"ds-connection\" data-state=\"CONNECTED\" role=\"status\"><span class=\"ds-dot\"></span>已连接</span>",
+      "css": ".ds-connection{display:inline-flex;align-items:center;gap:6px;border-radius:20px;padding:5px 8px;background:#30353b;color:#d5dee9;font-family:system-ui,-apple-system,\"Segoe UI\",\"Microsoft YaHei\",sans-serif;font-size:11px;white-space:nowrap}.ds-dot{width:6px;height:6px;border-radius:50%;background:currentColor}.ds-connection[data-state=CONNECTED]{background:#1d3932;color:var(--green)}.ds-connection[data-state=STALE],.ds-connection[data-state=ERROR],.ds-connection[data-state=DISCONNECTED]{background:#3b3028;color:var(--amber)}"
+    },
+    {
+      "name": "三列统计",
+      "kind": "custom",
+      "refersTo": "metrics",
+      "description": "等宽指标列；示例值不代表运行状态。",
+      "html": "<section class=\"ds-metrics\" aria-label=\"示例统计\"><div class=\"ds-metric\"><span>MCP 连接</span><strong>—</strong></div><div class=\"ds-metric\"><span>活跃线程</span><strong>—</strong></div><div class=\"ds-metric\"><span>工作区</span><strong>—</strong></div></section>",
+      "css": ".ds-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:12px 0;background:var(--surface);color:var(--text);border-radius:var(--radius);font-family:system-ui,-apple-system,\"Segoe UI\",\"Microsoft YaHei\",sans-serif;font-variant-numeric:tabular-nums}.ds-metric{display:flex;flex-direction:column;gap:5px;padding:0 14px}.ds-metric+.ds-metric{border-left:1px solid var(--line)}.ds-metric span{color:var(--muted);font-size:12px;white-space:nowrap}.ds-metric strong{font-size:19px;line-height:23px;font-weight:650}"
+    },
+    {
+      "name": "状态不可确认说明",
+      "kind": "custom",
+      "refersTo": "notice",
+      "description": "说明整个面板显示上次数据，并给出安全的中文原因。",
+      "html": "<div class=\"ds-notice\" role=\"status\">当前状态不可确认，面板显示上次数据。 Broker 状态查询超时，请刷新重试。</div>",
+      "css": ".ds-notice{padding:9px 10px;border-radius:6px;background:#382e27;color:#f4d1a4;font-family:system-ui,-apple-system,\"Segoe UI\",\"Microsoft YaHei\",sans-serif;font-size:13px;line-height:1.45}"
+    }
+  ],
+  "narrative": {
+    "northStar": "紧凑工作区状态面板",
+    "overview": "本规范记录当前扩展弹窗已经实现的视觉事实，范围仅限 packages/extension/popup.html、popup.css、popup.js、status.js 及其图标。视觉方向沿用用户提供的 ScriptCat 参考：紧凑深色、信息集中、操作明确。该表面属于 Operate 模式；它帮助用户确认连接状态、浏览工作区统计并复制诊断信息。\n\n截图 .artifacts/ui/connected.png、error.png、long-focus.png 来自真实 Chrome 中的 fixture 页面，截图数字是示例数据。正式扩展尚未加载；统计来源的真实性仅经 Broker/worker 代码与 fixture 验证，不能将截图作为正式扩展运行验收。",
+    "keyCharacteristics": ["固定窄幅，三列等宽统计，工作区使用紧凑单列。", "深色表面与细分隔线承担层次，蓝色承担操作与焦点提示。", "连接状态同时使用文字和颜色；不可确认的旧数据有整板说明。", "长标题保留单行布局，以鼠标和键盘可达浮层补全内容。"],
+    "rules": [],
+    "dos": ["Do 保持共享边距与统计等分布局，让操作和状态易于扫读。", "Do 为所有可操作或可展开信息保留明显的键盘焦点。", "Do 同时用文字表达连接与数据新鲜度，保留未知值和错误的真实含义。", "Do 将正式安装、真实统计与浏览器验收状态交由项目进度和验收文档说明。"],
+    "donts": ["Don't 将 fixture 截图中的示例数据描述为正式扩展当前状态。", "Don't 让长工作区标题撑宽弹窗或依靠只有鼠标能触发的说明。", "Don't 为本弹窗添加未实现的字体、动画、色阶或通用页面框架。"]
+  }
+}

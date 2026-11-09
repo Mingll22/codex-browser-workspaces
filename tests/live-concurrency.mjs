@@ -1,7 +1,10 @@
+// HISTORICAL 0.3 integration using prior owned test receipts.
 import {Rpc} from '../dist/adapter/src/rpc.js';
 import {readFile,writeFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const config=JSON.parse(await readFile(process.env.CBW_TEST_CONFIG??'.artifacts/dev-config.json','utf8'));
+const historicalHealth=await (await fetch(config.pairing.url.replace('ws:','http:')+'/health')).json();
+assert.match(historicalHealth.adapter??'',/^0\.3\./,'HISTORICAL_FIXTURE: replayed prior CLI receipts target 0.3; use the 0.4 acceptance matrix');
 const prefix=process.env.CBW_TEST_PREFIX??'acceptance';
 const connections=[];
 for(const name of ['a','b']){
