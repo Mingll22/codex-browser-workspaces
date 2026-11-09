@@ -99,7 +99,12 @@ export class Workspaces {
             if(existing){const key=this.key(root,current.generation,existing);token=this.leases.begin(key,caller,this.leases.view(key,caller).version);await this.persist();}
             result=await this.bridge.request('open',{threadId:root,slot:args.slot??'main',title:this.displayTitle(root,clientCwd),maxTabs:this.maxTabs,allowedTargetIds});
           }
-          await this.generation(root,result.generation);const page:Page=result.page,key=this.remember(root,result.generation,page);
+          await this.generation(root,result.generation);const page:Page=result.page,key=this.key(root,result.generation,page);
+          if(name==='move_tab_to_workspace'){
+            if(token!.key!==key)throw new OperationError('PAGE_REFERENCE_EXPIRED',{outcome:'UNKNOWN',nextAction:'list_pages_then_read_fresh_state'});
+            this.leases.rebind(token!,`${root}/${page.membershipId}`);
+          }
+          this.remember(root,result.generation,page);
           token??=this.leases.begin(key,caller,this.leases.view(key,caller).version);await this.persist();
           const pageId=leasedPageHandle(result.generation,page.targetId,page.membershipId,token.version);
           if(name==='open_page'&&page.url!==args.url){const map=await this.upstream.mapping([page.targetId]);await this.check(root,result.generation,page);const response=await this.upstream.call('navigate_page',{pageId:map.get(page.targetId),url:args.url},[page.targetId]);if(response.isError)return outputReferences(response,pageId,this.upstream.epoch,map.get(page.targetId)!);}

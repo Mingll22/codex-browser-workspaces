@@ -1,7 +1,7 @@
 import {formatCount, statusLabel, StatusError} from './status.js';
 
 const byId = id => document.getElementById(id);
-const elements = Object.fromEntries(['connection', 'connection-label', 'refresh', 'mcp-count', 'thread-count', 'workspace-count', 'notice', 'workspace-list', 'workspace-tooltip', 'versions', 'updated', 'copy', 'feedback'].map(id => [id, byId(id)]));
+const elements = Object.fromEntries(['connection', 'connection-label', 'refresh', 'mcp-count', 'thread-count', 'workspace-count', 'notice', 'workspace-list', 'workspace-tooltip'].map(id => [id, byId(id)]));
 let currentStatus = null;
 let updateSequence = 0;
 const errorMessages = {
@@ -10,13 +10,6 @@ const errorMessages = {
   [StatusError.BROWSER_QUERY]: '无法读取 Chrome 工作区，请刷新重试。',
   [StatusError.MIGRATION]: '工作区需要完成迁移，请检查安装状态。',
 };
-
-function timeLabel(timestamp) {
-  if (!Number.isFinite(timestamp)) return '尚未更新';
-  const date = new Date(timestamp);
-  if (!Number.isFinite(date.getTime())) return '尚未更新';
-  return `更新于 ${new Intl.DateTimeFormat('zh-CN', {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}).format(date)}`;
-}
 
 function textNode(tag, className, text) {
   const node = document.createElement(tag);
@@ -87,8 +80,6 @@ function render(status) {
     const message = isCurrent ? '暂无工作区' : hasObservation ? '上次没有工作区' : '工作区状态未知';
     elements['workspace-list'].append(textNode('div', 'empty', message));
   }
-  elements.versions.textContent = `扩展 ${status?.extensionVersion || '—'} · Broker ${status?.brokerVersion || '—'}`;
-  elements.updated.textContent = timeLabel(status?.observedAt);
 }
 
 async function refresh(force = false) {
@@ -106,19 +97,6 @@ async function refresh(force = false) {
 }
 
 elements.refresh.addEventListener('click', () => refresh(true));
-elements.copy.addEventListener('click', async () => {
-  // Deliberately exclude titles, page data, error strings, and credentials.
-  const status = currentStatus || {};
-  const diagnostic = [`Codex Browser Workspaces`, `状态: ${statusLabel(status.connection)}`, `扩展: ${status.extensionVersion || '—'}`, `Broker: ${status.brokerVersion || '—'}`, `MCP 连接: ${formatCount(status.mcpConnections)}`, `活跃线程: ${formatCount(status.activeThreads)}`, `数据时间: ${Number.isFinite(status.observedAt) ? new Date(status.observedAt).toISOString() : '未知'}`].join('\n');
-  try {
-    await navigator.clipboard.writeText(diagnostic);
-    elements['feedback'].textContent = '诊断信息已复制';
-    elements.copy.textContent = '已复制';
-  } catch {
-    elements['feedback'].textContent = '复制失败，请检查剪贴板权限';
-    elements.copy.textContent = '复制失败';
-  }
-});
 chrome.runtime.onMessage.addListener(message => {
   if (message?.type === 'cbw:status' && message.status) {
     updateSequence += 1;

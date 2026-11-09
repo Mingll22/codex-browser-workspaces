@@ -13,7 +13,7 @@ test('badge reflects known connection count and does not report unknown as zero'
   }
 });
 
-test('popup handles snapshot, refresh, stale data and safe diagnostic copy', async () => {
+test('popup handles snapshot, refresh, stale data and accessible full titles', async () => {
   class Element {
     constructor() { this.dataset = {}; this.children = []; this.events = {}; this.textContent = ''; this.style = {}; this.scrollWidth = 300; this.clientWidth = 100; this.scrollTop = 0; }
     getBoundingClientRect() { return {bottom: 200, height: 40}; }
@@ -22,7 +22,7 @@ test('popup handles snapshot, refresh, stale data and safe diagnostic copy', asy
     replaceChildren(...children) { this.children = children; }
     addEventListener(type, handler) { this.events[type] = handler; }
   }
-  const ids = ['connection', 'connection-label', 'refresh', 'mcp-count', 'thread-count', 'workspace-count', 'notice', 'workspace-list', 'workspace-tooltip', 'versions', 'updated', 'copy', 'feedback'];
+  const ids = ['connection', 'connection-label', 'refresh', 'mcp-count', 'thread-count', 'workspace-count', 'notice', 'workspace-list', 'workspace-tooltip'];
   const nodes = Object.fromEntries(ids.map(id => [id, new Element()]));
   globalThis.document = {getElementById: id => nodes[id], createElement: () => new Element()};
   globalThis.window = {innerHeight: 500};
@@ -31,8 +31,6 @@ test('popup handles snapshot, refresh, stale data and safe diagnostic copy', asy
   let listener;
   const connections = [];
   globalThis.chrome = {runtime: {connect: options => {connections.push(options); return {};}, sendMessage: async message => {requests.push(message); return status;}, onMessage: {addListener: callback => {listener = callback;}}}};
-  let copied;
-  Object.defineProperty(globalThis, 'navigator', {configurable: true, value: {clipboard: {writeText: async text => {copied = text;}}}});
   await import('../packages/extension/popup.js');
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(connections, [{name: 'cbw:popup'}]);
@@ -64,9 +62,6 @@ test('popup handles snapshot, refresh, stale data and safe diagnostic copy', asy
   }
   listener({type: 'cbw:status', status: {...status, connection: 'ERROR', error: 'secret-token'}});
   assert.doesNotMatch(nodes.notice.textContent, /secret-token/);
-  await nodes.copy.events.click();
-  assert.match(copied, /MCP 连接: 2/);
-  assert.doesNotMatch(copied, /Private title|secret-token/);
   listener({type: 'cbw:status', status: {connection: 'DISCONNECTED', observedAt: null, mcpConnections: null, activeThreads: null, workspaces: []}});
   assert.equal(nodes['mcp-count'].textContent, '—');
   assert.equal(nodes['workspace-count'].textContent, '—');
@@ -78,6 +73,7 @@ test('manifest exposes popup and all extension icon sizes', async () => {
   assert.ok(html.indexOf('id="notice"') < html.indexOf('class="metrics"'));
   const manifest = JSON.parse(await readFile(new URL('../packages/extension/manifest.json', import.meta.url)));
   assert.equal(manifest.action.default_popup, 'popup.html');
+  assert.equal(manifest.permissions.includes('clipboardWrite'), false);
   for (const size of [16, 32, 48, 128]) {
     assert.equal(manifest.action.default_icon[size], manifest.icons[size]);
     const png = await readFile(new URL(`../packages/extension/${manifest.icons[size]}`, import.meta.url));

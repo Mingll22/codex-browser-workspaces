@@ -257,6 +257,54 @@ test('active-tab discovery grants no authority; explicit move preserves the exte
  await ws.detach('c');clock.advance(LEASE_MS*2);await ws.collect(clock.now());assert.equal(bridge.tabs.has(external.tabId),true);
 });
 
+test('reimport after leaving the family returns a usable lease and revokes the old membership',async t=>{
+ const {ws,bridge,upstream}=await setup(t,{families:{a:'root',b:'root'}});
+ const first=unwrap(await ws.call('ca','a','open_page',{url:'https://state.test/'})),tab=bridge.rows.get('root')[0];
+ bridge.leave('root',tab);bridge.activeTabId=tab.tabId;
+ const candidate=unwrap(await ws.call('ca','a','get_active_tab',{})).page;
+ const moved=unwrap(await ws.call('ca','a','move_tab_to_workspace',{pageId:candidate.pageId}));
+ assert.notEqual(moved.pageId,first.pageId);assert.equal(moved.canClose,false);
+ await ws.call('ca','a','evaluate_script',{pageId:moved.pageId,function:'()=>true'});
+ assert.equal(upstream.calls.at(-1).name,'evaluate_script');assert.equal(tab.url,'https://state.test/');
+ assert.equal(unwrap(await ws.call('ca','a','list_pages',{})).pages[0].pageId,moved.pageId);
+ assert.deepEqual(unwrap(await ws.call('cb','b','list_pages',{})).pages,[]);
+ await assert.rejects(ws.call('ca','a','evaluate_script',{pageId:first.pageId,function:'()=>true'}),/PAGE_NOT_OWNED/);
+ await assert.rejects(ws.call('cb','b','move_tab_to_workspace',{pageId:candidate.pageId}),/PAGE_LEASE_BUSY/);
+});
+
+test('released target can enter another family and return with usable fresh handles',async t=>{
+ const {ws,bridge}=await setup(t);
+ const first=unwrap(await ws.call('ca','a','open_page',{url:'about:blank'})),tab=bridge.rows.get('a')[0];
+ await ws.call('ca','a','release_page',{pageId:first.pageId});bridge.leave('a',tab);bridge.activeTabId=tab.tabId;
+ const candidate=unwrap(await ws.call('cb','b','get_active_tab',{})).page;
+ const second=unwrap(await ws.call('cb','b','move_tab_to_workspace',{pageId:candidate.pageId}));
+ await ws.call('cb','b','evaluate_script',{pageId:second.pageId,function:'()=>true'});
+ await assert.rejects(ws.call('ca','a','take_snapshot',{pageId:first.pageId}),/PAGE_NOT_OWNED/);
+ await ws.call('cb','b','release_page',{pageId:second.pageId});bridge.leave('b',tab);
+ const returned=unwrap(await ws.call('ca','a','move_tab_to_workspace',{pageId:candidate.pageId}));
+ await ws.call('ca','a','evaluate_script',{pageId:returned.pageId,function:'()=>true'});
+ assert.notEqual(returned.pageId,first.pageId);assert.notEqual(returned.pageId,second.pageId);
+ await assert.rejects(ws.call('cb','b','take_snapshot',{pageId:second.pageId}),/PAGE_NOT_OWNED/);
+});
+
+test('pending reimport keeps the target occupied across membership observation and timeout',async t=>{
+ const {ws,bridge,clock}=await setup(t,{families:{a:'root',observer:'root',sibling:'root'}});
+ await ws.call('ca','a','open_page',{url:'about:blank'});const tab=bridge.rows.get('root')[0];
+ bridge.leave('root',tab);bridge.activeTabId=tab.tabId;
+ const candidate=unwrap(await ws.call('ca','a','get_active_tab',{})).page;
+ const gate=deferred(),started=deferred(),original=bridge.request.bind(bridge);
+ bridge.request=async(method,args)=>{const result=await original(method,args);if(method==='move_tab_to_workspace'){started.resolve();await gate.promise;}return result;};
+ const pending=ws.call('ca','a','move_tab_to_workspace',{pageId:candidate.pageId});await started.promise;
+ // A sibling list observes the new membership before the initiating move returns.
+ assert.deepEqual(unwrap(await ws.call('observe','observer','list_pages',{})).pages,[]);clock.advance(LEASE_MS*2);
+ const before=bridge.requests.filter(request=>request.method==='move_tab_to_workspace').length;
+ await assert.rejects(ws.call('foreign','foreign','move_tab_to_workspace',{pageId:candidate.pageId}),/PAGE_OPERATION_IN_PROGRESS|PAGE_LEASE_BUSY/);
+ assert.equal(bridge.requests.filter(request=>request.method==='move_tab_to_workspace').length,before);
+ gate.resolve();const moved=unwrap(await pending);
+ assert.deepEqual(unwrap(await ws.call('sibling','sibling','list_pages',{})).pages,[]);
+ await ws.call('ca','a','evaluate_script',{pageId:moved.pageId,function:'()=>true'});
+});
+
 test('foreign tabs inserted into the group stay protected and are never reused for a matching slot',async t=>{
  const {ws,bridge}=await setup(t,{maxTabs:3});await ws.call('c','a','open_page',{url:'about:blank'});
  const foreign=bridge.create('a',{source:'external',slot:'reference',url:'https://user.test/'});

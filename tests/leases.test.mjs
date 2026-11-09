@@ -77,3 +77,27 @@ test('membership invalidation cannot erase an unknown target outcome',()=>{
  assert.equal(leases.held('g1/target'),true);assert.equal(leases.view('g1/target','a').status,'UNKNOWN');assert.equal(leases.view('g1/target','b').visible,false);
  assert.throws(()=>leases.begin('g1/target','b',1),/PAGE_EXECUTION_UNKNOWN/);
 });
+
+test('successful membership handoff preserves the executing grant even after a list observed the move',()=>{
+ const {leases,advance,now}=setup(),key='g1/target';leases.bind(key,'root/old');
+ const old=leases.begin(key,'a',1);leases.finish(old);leases.invalidate(key);
+ const moving=leases.begin(key,'a',2);leases.bind(key,'root/new');advance(LEASE_MS*2);
+ assert.throws(()=>leases.begin(key,'b',2),/PAGE_OPERATION_IN_PROGRESS/);
+ leases.rebind(moving,'root/new');assert.equal(leases.snapshot()[key].executing,1);
+ assert.equal(leases.view(key,'a').expiresAt,now()+LEASE_MS);assert.equal(leases.view(key,'b').visible,false);
+ leases.finish(moving);const next=leases.begin(key,'a',2);leases.finish(next);
+ assert.throws(()=>leases.begin(key,'a',1),/PAGE_LEASE_EXPIRED/);
+ // Ordinary membership observation still revokes an idle grant.
+ leases.bind(key,'other/new');assert.equal(leases.view(key,'b').status,'AVAILABLE');
+});
+
+test('membership handoff cannot revive finished or stale grants or clear an unknown outcome',()=>{
+ const {leases}=setup(),key='g1/target';leases.bind(key,'root/old');
+ const old=leases.begin(key,'a',1);leases.finish(old);
+ assert.throws(()=>leases.rebind(old,'root/new'),/PAGE_REFERENCE_EXPIRED/);
+ leases.release(key,'a',1);const moving=leases.begin(key,'b',2);
+ assert.throws(()=>leases.rebind(old,'root/new'),/PAGE_REFERENCE_EXPIRED/);
+ leases.finish(moving,true);leases.bind(key,'other/new');
+ assert.throws(()=>leases.rebind(moving,'other/new'),/PAGE_EXECUTION_UNKNOWN/);
+ assert.equal(leases.view(key,'a').visible,false);assert.equal(leases.view(key,'b').status,'UNKNOWN');
+});

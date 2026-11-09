@@ -1,39 +1,33 @@
 # Validation and compatibility
 
-## 0.4.0 root-family and page-lease candidate, 2026-11-09
+## Formal root-family installation and 0.4.1 acceptance repair, 2026-11-09
 
-The source and artifacts are a **candidate**, not the currently loaded installation. `npm run build && npm test` passed **148/148** local checks. These checks use disposable Chrome API/bridge fixtures, temporary read-only SQLite databases and a controlled clock; the five-minute boundary was simulated, not observed for five wall-clock minutes. Script-level checks include exact-state forward/rollback restoration and a state write followed by a simulated lost response. The prior version's browser evidence below remains historical.
+Adapter and extension **0.4.0** were formally loaded with page model 2 and upstream **1.11.0**. Migration preserved the extension generation and exact tab/target/group/window receipts, with no family multi-group conflict, group-name matching, browser restart or login/profile replacement. Admin/code allowlists contain 27 tools and design retains its 24-tool subset. A fresh client loads the installed stdio code; already-running TUI tool catalogs need their own reconnect/reload before exposing newly allowed tools.
 
-Real Codex metadata was checked for a root, child and grandchild: each MCP call used a different actual caller ID, and two real `thread_spawn_edges` led to the same root. The candidate directory resolved the grandchild with three synchronous queries, cached all three mappings and retained one read-only connection. Formal `list_pages` calls by those agents returned zero pages through installed adapter **0.3.3 / extension 0.3.1**. This proves actual identity and candidate resolution, not 0.4 grouping or leases in Chrome. Local detailed evidence stays in ignored `.artifacts/root-family-identity-evidence.json`.
+The **0.4.1** follow-up repairs a real reimport failure and applies the user's fixed-light, footer-free popup. Five additional lease/workspace regressions bring the local checks to **153/153**. Those checks remain fixtures: the new real evidence below is separate. Local detailed receipts, failures, screenshots, cleanup and installation reports are private runtime artifacts rather than public-source test data.
 
-A temporary candidate extension with a distinct key and isolated broker configuration was prepared. The official installation tool rejected the Windows path because WSL canonical-root validation treated it as a relative path. No root allowlist, formal extension, service, login profile or Chrome process was changed to bypass that refusal. The temporary extension was never loaded. The candidate broker/stdio tool-list check exposes the eight workspace tools plus nineteen official page tools; it is a protocol/schema check, not browser operation acceptance.
-
-| Acceptance behavior | Current evidence | Required after admin loading |
+| Acceptance behavior | Observed real 0.4 evidence | Limits or follow-up |
 | --- | --- | --- |
-| Manual drag-in, drag-out and drag-back | Extension membership fixture; fresh membership invalidates old handle | Use disposable original tabs and exact group receipts; confirm content appears/disappears without registration |
-| A → independent B transfer | Fixture revocation, close protection and global target execution occupancy | Manually move the owned test tab; A old ID fails, B lists original target as protected |
-| Active discovery independent of move | Fixture recent normal window, active vs highlighted, later selection change | Discover test tab, activate another self-owned test tab, move the original reference |
-| Empty family imports original tab | Fixture no new tab/refresh, active=true without focus API | Verify unchanged target/document state, no blank side product and stable OS foreground |
-| Position/order/lease gaps | Full-group order fixture, broker filter and exact position rejection | Reorder four test tabs, lease position 2 elsewhere, assert positions 1/3/4 |
-| Root/child/grandchild and independent family | Real identity/SQLite chain + family bridge fixture | Actual tool calls from all levels use one exact group; independent root uses a different group |
-| Sibling race and direct old-ID denial | Atomic lease and concurrent Workspaces fixture | Race siblings against one available test target: one grant, other list hidden/direct call denied |
-| List vs operation renewal and old UID | Controlled five-minute boundary + UID/grant checks | Real claim/release/isolation; controlled-clock evidence remains separate from any wall-clock observation |
-| In-flight expiry, timeout/cancel/UNKNOWN | Fixture expiry cannot steal running/unknown target, including cross-family movement | Use bounded test actions only; inspect actual result, never replay uncertain action |
-| External close protection | Extension explicit close, broker cleanup, retention independence fixtures | Import a test tab; explicit close and cleanup refuse, then only simulated user action closes exact fixture |
-| Single/main/last/group closure | Fixture missing-page cleanup and no resurrection; target replacement checks | Close exact test objects in Chrome, then list/reconnect/old-ID calls create nothing |
-| One child ends | Family actor fixtures, including child-first without root lifetime evidence | End one actual child while another family actor uses a test tab; preserve other leases/protected pages |
-| Read-only DB/cache/failure | Native SQLite read-only, deep-chain, no-held-transaction/cache/failure tests | Confirm broker CODEX_HOME and schema match before loading; never modify Codex DB |
-| Existing regressions | Slot/same URL, mapping discovery wait, extension-page schema, reconnect, refs, capture/cancel/minimized helpers | Repeat scoped ordinary/extension-page mapping, background and minimized capture without restoring Chrome |
+| Manual drag-in/out/back | Exact original targets appear/disappear with current membership; old handles fail | Test-owned objects only |
+| A → independent B transfer | A loses access; B sees the original target as external/protected | No real user page moved |
+| Active discovery independent of move | Discover X, activate Y, then import the original X | State nonce and target remain stable |
+| Empty family imports original tab | No extra blank tab or refresh; a repeated import exposed an immediately expired returned lease | 0.4.1 adds an executing-grant membership handoff and requires live repair retest |
+| Position/order/lease gaps | Four disposable tabs follow actual Chrome reorder; real family caller filtering preserves original positions | Positions are interpreted from the full group before filtering |
+| Root/child/grandchild and independent family | Real native caller IDs and official spawn edges share one exact group; independent no-model host roots use separate groups | No guessed or database-inserted identity |
+| Sibling race/old ID denial | Concurrent real children: one evaluate succeeds, the other gets PAGE_LEASE_BUSY before execution and its list hides the target | The losing action is never replayed |
+| List/renewal/old UID | List does not change lease timestamps; page operation renews; release/idle expiry rejects old ID and UID | Actual idle observation exceeded five wall-clock minutes |
+| In-flight/timeout/UNKNOWN | A bounded live action excludes another root; known wait timeout settles without UNKNOWN | UNKNOWN across the real expiry boundary and its exact reconciliation are recorded by the admin run |
+| External close protection | Explicit close refuses imported pages despite retention changes; process-exit cleanup preserves external/retained pages | Fixture closure is an exact simulated user action |
+| Single/main/last/group closure | Missing targets remain absent across list, old-ID use and host reconnect | No automatic blank-tab recreation |
+| One child ends | A descendant ends while another family actor continues; exact target/group receipts survive | Host completion and registered process exit are distinguished |
+| Read-only DB/cache | Actual broker database file descriptor is read-only; native ancestry is verified against historical edges | Cache/failure semantics remain isolated unit checks; shared DB is never altered |
+| Existing regressions | Explicit slots/same URL, extension-page mapping, reconnect, background and own minimized-window screenshots | No artificial discovery delay injected; shared window is never minimized for testing |
 
-The new-model Chrome rows remain **NOT RUN** until admin loads the matching extension and broker. All browser fixtures must create their own identifiable objects and clean only exact created receipts; adapter close is intentionally unavailable for protected external tabs, so their final removal is a test-owned simulated user action. Do not run historical synthetic-ID harnesses against a 0.4 broker or substitute guessed identities. `tests/live-*.mjs` marked historical are retained only to interpret older evidence.
+Real lifecycle fixtures use official host thread/name/set and thread/inject_items to persist dedicated no-model threads, then gate on broker visibility. They never insert SQLite rows or start a model turn. Successful cleanup verifies exact created targets absent and dedicated threads archived. Older harnesses with synthetic caller identities retain their version gates.
 
-## Extension icon and popup acceptance
+## Extension popup
 
-The 0.4 candidate includes 16/32/48/128px geometric grouped-page icons and a toolbar badge showing actual registered MCP connections (99+ above 99; ! for unknown/error/disconnected). The popup uses authenticated broker counts and current group metadata; it never grants or renews a page lease. It scans group metadata only when the popup is open or explicitly requested, while badge counters reuse the existing bridge heartbeat. The additional `clipboardWrite` permission is used only by the user's copy-diagnostics action; diagnostics omit titles, page data and credentials.
-
-The popup was rendered through the official MCP in real Chrome at 380 CSS pixels in connected, disconnected, empty, timeout/error and long-title states, using prominently labelled sample data. Screenshots, keyboard-focused full-name tooltip, refresh-enabled recovery and successful copy feedback were inspected. No horizontal overflow was measured. The independent review's stale-data label and keyboard-title findings were both fixed and rescored resolved; its final `ship` disposition covers the fixture UI only. Temporary viewport overrides were restored and both exact own preview targets were queried absent after closing. Evidence is local under ignored `.artifacts/ui/`.
-
-The installed-extension popup/toolbar and actual live broker-to-popup numbers still require admin loading. Their source/bridge/DOM fixtures passed, including a separate actual candidate broker process whose registered MCP hello/disconnect changes authenticated WebSocket counts 0 → 1 → 0; this is separate from a live installed-extension acceptance.
+The toolbar badge uses actual registered MCP connections. The installed 0.4 popup was checked against broker counts and current Chrome groups; its copy action was historically exercised before the user removed that feature. The current 0.4.1 surface is fixed light, with connection, metrics, workspaces and refresh only; it removes the entire version/time/diagnostic footer and clipboardWrite permission. Unknown values and stale/error notices stay explicit, and long titles remain keyboard accessible. Final loaded light-theme screenshots and interactions are recorded by admin; historical dark/sample screenshots do not establish current UI acceptance.
 
 ## Historical deployed-version evidence
 

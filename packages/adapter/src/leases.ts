@@ -14,6 +14,15 @@ export class PageLeases {
     if(previous&&previous!==membership)this.invalidate(key);
     this.memberships.set(key,membership);if(row)row.membership=membership;
   }
+  rebind(token:{key:string;version:number;owner:string},membership:string){
+    this.validate(token);const row=this.rows.get(token.key)!;
+    if(row.unknown)throw new OperationError('PAGE_EXECUTION_UNKNOWN',{outcome:'UNKNOWN',nextAction:'reconcile_execution_before_releasing'});
+    if(row.executing!==1)throw new OperationError('PAGE_REFERENCE_EXPIRED',{outcome:'UNKNOWN',nextAction:'list_pages_then_read_fresh_state'});
+    // A successful explicit move transfers its still-held target grant. A list
+    // may already have observed the new membership and invalidated the old one.
+    this.memberships.set(token.key,membership);row.membership=membership;
+    row.lastUsed=this.now();row.expiresAt=row.lastUsed+LEASE_MS;
+  }
   private available(row:Lease){return !row.unknown&&!row.executing&&this.now()>=row.expiresAt;}
   view(key:string,caller:string){
     const row=this.rows.get(key);
