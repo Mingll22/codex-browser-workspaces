@@ -10,6 +10,8 @@ export const PAGE_TOOLS=[
   'press_key','type_text','wait_for','evaluate_script','handle_dialog','emulate',
   'list_network_requests','get_network_request','list_console_messages','get_console_message','upload_file',
 ] as const;
+// Only tools whose handlers observe page state. evaluate_script is arbitrary code.
+const READ_ONLY_TOOLS=new Set(['wait_for','take_snapshot','list_network_requests','get_network_request','list_console_messages','get_console_message']);
 export class Upstream {
   epoch=randomUUID();
   private client?:Client;
@@ -54,9 +56,24 @@ export class Upstream {
     const op=operations.getStore();
     const timeout=Math.max(1,Math.min(25000,(op?.deadline??Infinity)-Date.now()));
     const deadline=Date.now()+timeout;
+    // Leave time to receive the wait handler's terminal timeout response.
+    const input=name==='wait_for'?{...args,timeout:Math.min(Number(args.timeout)||30000,Math.max(1,timeout-1000))}:args;
     dispatched();
-    try{return await client.callTool({name,arguments:{...args,__cbwTargetIds:targetIds,__cbwDeadline:deadline}},undefined,{timeout,signal:op?.signal}) as CallToolResult;}
+    try{return await client.callTool({name,arguments:{...input,__cbwTargetIds:targetIds,__cbwDeadline:deadline}},undefined,{timeout,signal:op?.signal}) as CallToolResult;}
     catch(e:any){
+      // A transport timeout does not prove that the page handler has ended.
+      // The scoped snapshot uses the same upstream per-page mutex: a terminal
+      // response proves the previous read released it, without replaying the read.
+      // Keep the lease executing until this independent bounded drain finishes.
+      if(READ_ONLY_TOOLS.has(name)&&typeof args.pageId==='number'&&this.client===client){
+        try{
+          const drained=await client.callTool({name:'take_snapshot',arguments:{pageId:args.pageId,__cbwTargetIds:targetIds,__cbwDeadline:Date.now()+20000}},undefined,{timeout:20000}) as CallToolResult;
+          if(!drained.isError)throw new OperationError('UPSTREAM_READ_FAILED',{outcome:'FAILED',terminalEvidence:'same_page_snapshot_completed',nextAction:'read_fresh_page_state'});
+        }catch(drainError){
+          if(drainError instanceof OperationError)throw drainError;
+          // No terminal proof: preserve UNKNOWN, including on disconnect.
+        }
+      }
       // SDK cancellation/timeout must not tear down other threads' healthy transport.
       if(op?.signal.aborted)throw new OperationError('REQUEST_CANCELLED',{outcome:'UNKNOWN',nextAction:'inspect_page_before_retry'});
       if(e.code===-32001)throw new OperationError('UPSTREAM_TIMEOUT_OUTCOME_UNKNOWN',{outcome:'UNKNOWN',nextAction:'inspect_page_before_retry'});

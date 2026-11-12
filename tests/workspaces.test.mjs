@@ -435,3 +435,20 @@ test('completed cleanup stops rescanning protected or retained groups until thei
  await ws.call('resume','a','list_pages',{});await ws.detach('resume');clock.advance(LEASE_MS*2);await ws.collect(clock.now());
  assert.ok(bridge.requests.filter(request=>request.method==='list').length>lists);
 });
+
+test('terminal read failure keeps the lease usable; uncertain write still blocks after restart',async t=>{
+ const {ws,upstream,make}=await setup(t);
+ const {pageId}=unwrap(await ws.call('ca','a','open_page',{url:'about:blank'}));
+ const original=upstream.call;
+ upstream.call=async()=>{throw new OperationError('UPSTREAM_READ_FAILED',{outcome:'FAILED',terminalEvidence:'same_page_snapshot_completed'});};
+ await assert.rejects(ws.call('ca','a','wait_for',{pageId,text:['absent']}),/UPSTREAM_READ_FAILED/);
+ assert.equal(unwrap(await ws.call('ca','a','list_pages',{})).pages[0].lease.status,'OWNED');
+ upstream.call=original;await ws.call('ca','a','take_snapshot',{pageId});
+ upstream.call=async()=>{throw new OperationError('UPSTREAM_TIMEOUT_OUTCOME_UNKNOWN',{outcome:'UNKNOWN'});};
+ await assert.rejects(ws.call('ca','a','navigate_page',{pageId,url:'https://example.test/'}));
+ await assert.rejects(ws.call('ca','a','release_page',{pageId}),/PAGE_EXECUTION_UNKNOWN/);
+ const restored=make();await restored.load();
+ const fresh=unwrap(await restored.call('new','a','list_pages',{})).pages[0];
+ assert.equal(fresh.lease.status,'UNKNOWN');
+ await assert.rejects(restored.call('new','a','take_snapshot',{pageId:fresh.pageId}),/PAGE_EXECUTION_UNKNOWN/);
+});

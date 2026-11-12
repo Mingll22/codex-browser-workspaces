@@ -56,3 +56,25 @@ test('empty official page list waits for discovery without rejecting a new targe
  upstream.call=async()=>({structuredContent:{pages:'invalid'}});
  await assert.rejects(upstream.mapping(['owned']),/UPSTREAM_CONTRACT_CHANGED/);
 });
+
+test('read timeout drains the exact page before releasing, without replaying the operation',async()=>{
+ const u=new Upstream('http://127.0.0.1:9222'),calls=[];let finish;
+ const terminal=new Promise(resolve=>finish=resolve);
+ u.client={async callTool(request){calls.push(request);if(calls.length===1)throw Object.assign(new Error('timeout'),{code:-32001});await terminal;return {content:[]};}};
+ let settled=false;
+ const result=u.call('wait_for',{pageId:7,text:['absent'],timeout:25000},['owned']).catch(e=>{settled=true;return e;});
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(settled,false);
+ assert.equal(calls.length,2);assert.equal(calls[0].arguments.timeout,24000);
+ assert.equal(calls[1].name,'take_snapshot');assert.equal(calls[1].arguments.pageId,7);
+ assert.deepEqual(calls[1].arguments.__cbwTargetIds,['owned']);
+ finish();const error=await result;assert.equal(error.details.outcome,'FAILED');assert.equal(error.details.terminalEvidence,'same_page_snapshot_completed');
+});
+
+test('failed read drain and arbitrary JavaScript or writes retain unknown outcome',async()=>{
+ for(const name of ['wait_for','click','evaluate_script']){
+  const u=new Upstream('http://127.0.0.1:9222');let calls=0;
+  u.client={async callTool(){calls++;throw Object.assign(new Error('timeout'),{code:-32001});}};
+  await assert.rejects(u.call(name,{pageId:7},['owned']),e=>e.details.outcome==='UNKNOWN');
+  assert.equal(calls,name==='wait_for'?2:1);
+ }
+});

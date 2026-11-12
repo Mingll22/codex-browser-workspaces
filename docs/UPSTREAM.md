@@ -64,3 +64,17 @@ upload_file
 正式 Broker 只透传上述页面 allowlist，不开放 extension/worker 管理。源码中的 extension-test-client.mjs 是显式安装/回滚的管理辅助：通过固定官方 MCP 与显式 target 元数据适配查找经验证的 anchor target 与固定项目扩展 ID，仅向该 worker 执行精确状态收据操作；不把管理工具暴露给模型页面工具。0.4 升级先导出全部真实组成员，纯计划器将历史 spawn 归属归根；多真实组冲突停止，不按同名组认领。加载和回滚都重新比较完整 tab/target/group/window 收据。
 
 管理/测试入口的 upstream-target-metadata.mjs 只将官方 page 对象的 targetId 加入返回元数据；同 URL 按 page.id 精确映射，不修改工具 handler、不授予页面权限。固定 1.11.0 与三个精确结构锚点在构建和入口启动时校验。它只由显式管理/fixture客户端 preload，正式 Broker 仍使用 scope 限定的 dist/upstream；未修改 node_modules。
+
+## Read timeout reconciliation
+
+The adapter reserves one second of its bounded transport budget for `wait_for` to
+return its handler timeout. A transport failure for a known observation tool
+(`wait_for`, snapshot, network or console reads) triggers one independent bounded
+snapshot of the exact scoped page. The upstream per-page mutex keeps that snapshot
+behind the previous handler. Only a successful snapshot proves the previous read
+ended; the adapter then reports `UPSTREAM_READ_FAILED` with outcome `FAILED`, keeps
+fresh-state guidance, and releases execution occupancy. It does not replay the
+failed request. A failed drain preserves UNKNOWN. Arbitrary `evaluate_script`,
+input, navigation and other mutations never use this read recovery path. Restart
+still conservatively preserves existing UNKNOWN records; historical records need
+specific operation evidence and observed termination before administrative repair.
