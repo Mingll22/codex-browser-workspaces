@@ -78,3 +78,39 @@ failed request. A failed drain preserves UNKNOWN. Arbitrary `evaluate_script`,
 input, navigation and other mutations never use this read recovery path. Restart
 still conservatively preserves existing UNKNOWN records; historical records need
 specific operation evidence and observed termination before administrative repair.
+
+### Explicit admin recovery of an existing UNKNOWN
+
+`scripts/reconcile-execution.mjs` is the local admin maintenance entry for a
+specific upstream page request. It is not exposed as an ordinary MCP tool and
+does not impersonate the original caller. Its plan contains `root`, the exact
+current `pageId`, `requestId`, `tool`, lease `lastUsed`, `upstreamPid`, and an
+explicit `closePage` boolean. Use only with authorization for that target:
+
+```sh
+node scripts/reconcile-execution.mjs --pid BROKER_PID \
+  --plan exact-recovery.json --output result.json
+```
+
+The entry holds the existing broker maintenance socket, then temporarily opens
+the broker's local Node inspector to find its unique existing workspace and
+journal objects. Port 9229 must be unused. A reviewed maintenance method is
+loaded into those objects without restarting the broker, upstream or Chrome.
+The inspector is closed before maintenance ends. Browser calls continue through
+the original official MCP client; no second client or browser connection is
+created to operate the page.
+
+Recovery checks the original UNKNOWN journal request, exact lease and membership,
+and an upstream process that predates the request. The original client maps the
+exact target and completes a snapshot behind its existing page mutex. Failure,
+transport replacement or identity changes leave UNKNOWN intact. Success proves
+that the handler ended; **the original action outcome and missing result remain
+UNKNOWN**, including for `evaluate_script`. Recovery never replays that action.
+The owner retains its lease for five minutes unless the authorized plan closes
+the page. Closing uses the usual extension ownership and `canClose` checks;
+an uncertain close creates a new UNKNOWN and cannot release the lease.
+
+The result includes terminal evidence, the remaining lease, and a native scoped
+upstream `list_pages` response. This is admin recovery evidence, not a call made
+by the original code thread or a replacement for its project acceptance. The
+runtime ledger and pairing configuration are never deleted or replaced.

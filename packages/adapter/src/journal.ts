@@ -13,6 +13,13 @@ export class Journal {
     this.timer??=setTimeout(()=>{this.timer=undefined;void this.flush().catch(e=>console.error('Diagnostic write failed:',e.code??e.message));},500);this.timer.unref();
   }
   recent(thread:string){return this.events.filter(e=>e.thread===thread).slice(-12);}
+  unknownRequest(requestId:string,thread:string,tool:string,lastUsed:number){
+    const rows=this.events.filter(e=>e.requestId===requestId);
+    const started=rows.find(e=>e.event==='request_started'&&e.thread===thread&&e.tool===tool);
+    const failed=rows.find(e=>e.event==='request_failed'&&e.thread===thread&&e.tool===tool&&e.outcome==='UNKNOWN');
+    if(!started||!failed||lastUsed<started.at||lastUsed>failed.at||rows.some(e=>e.event==='execution_reconciled'))throw new Error('EXECUTION_RECONCILE_REQUEST_MISMATCH');
+    return {startedAt:started.at,failedAt:failed.at,code:failed.code};
+  }
   flush(){
     if(this.timer){clearTimeout(this.timer);this.timer=undefined;}
     const data=JSON.stringify(this.events);

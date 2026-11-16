@@ -7,6 +7,7 @@ import {Workspaces} from '../dist/adapter/src/workspaces.js';
 import {LEASE_MS} from '../dist/adapter/src/leases.js';
 import {controllerProcess} from '../dist/adapter/src/controller-process.js';
 import {OperationError} from '../dist/adapter/src/operation.js';
+import {Journal} from '../dist/adapter/src/journal.js';
 
 // The rows describe actual Chrome group membership, including foreign tabs.
 class FakeBridge {
@@ -88,6 +89,56 @@ async function setup(t,{ttl=null,grace=30000,maxTabs=2,families={},title=root=>'
  const make=()=>new Workspaces(bridge,upstream,stateFile,maxTabs,ttl,undefined,grace,threads,()=>clock.now());
  const ws=make();await ws.load();return {ws,bridge,upstream,stateFile,clock,make};
 }
+
+async function unknownRecovery(t){
+ const fixture=await setup(t),{ws,upstream,stateFile}=fixture;
+ const page=unwrap(await ws.call('original','root','open_page',{url:'about:blank'}));
+ upstream.call=async()=>{throw new OperationError('UPSTREAM_TIMEOUT_OUTCOME_UNKNOWN',{outcome:'UNKNOWN'});};
+ await assert.rejects(ws.call('original','root','evaluate_script',{pageId:page.pageId,function:'()=>true'}),/OUTCOME_UNKNOWN/);
+ const lease=ws.leases.snapshot()['g1/t1'],journalPath=stateFile+'.events';
+ await writeFile(journalPath,JSON.stringify([
+  {at:lease.lastUsed-1,event:'request_started',requestId:'request',thread:'root',tool:'evaluate_script'},
+  {at:lease.lastUsed+25000,event:'request_failed',requestId:'request',thread:'root',tool:'evaluate_script',outcome:'UNKNOWN'}
+ ]));
+ const journal=new Journal(journalPath);await journal.load();
+ const plan={root:'root',pageId:page.pageId,requestId:'request',tool:'evaluate_script',lastUsed:lease.lastUsed,closePage:true,upstreamPid:123};
+ return {...fixture,journal,plan,lease};
+}
+
+test('admin reconciliation holds UNKNOWN until original queue proof, closes and releases only the exact target',async t=>{
+ const {ws,bridge,upstream,journal,plan,lease}=await unknownRecovery(t),gate=deferred();
+ const unrelated=ws.leases.begin('g1/unrelated','other',1);ws.leases.finish(unrelated,true);
+ upstream.drainExecution=async(target,pid)=>{assert.equal(target,'t1');assert.equal(pid,123);await gate.promise;return {epoch:'e1',upstreamPageId:1,terminalEvidence:'same_original_process_page_snapshot_completed',readPages:async()=>({content:[],structuredContent:{pages:[]}})};};
+ const recovery=ws.reconcileExecution(plan,journal);await new Promise(done=>setImmediate(done));
+ assert.equal(lease.unknown,true);assert.equal(bridge.tabs.size,1);assert.throws(()=>ws.leases.release('g1/t1','root',1),/PAGE_EXECUTION_UNKNOWN/);
+ gate.resolve();const result=await recovery;
+ assert.equal(result.originalOutcome,'UNKNOWN');assert.equal(result.execution,'TERMINATED');assert.equal(result.closed,true);assert.equal(result.released,true);
+ assert.equal(bridge.tabs.size,0);assert.equal(lease.unknown,false);assert.equal(lease.expiresAt,0);assert.equal(ws.leases.snapshot()['g1/unrelated'].unknown,true);
+ assert.equal(ws.controllers.attached('root'),true);assert.equal(ws.controllers.count,1);
+ assert.equal(journal.recent('root').at(-1).event,'execution_reconciled');
+});
+
+test('failed proof, changed membership and wrong request cannot clear UNKNOWN or close a page',async t=>{
+ for(const mode of ['proof','membership','request']){
+  const {ws,bridge,upstream,journal,plan,lease}=await unknownRecovery(t);
+  upstream.drainExecution=async()=>{if(mode==='proof')throw Error('EXECUTION_RECONCILE_UNPROVEN');bridge.rows.get('root')[0].membershipId='changed';return {};};
+  if(mode==='request')plan.requestId='other';
+  await assert.rejects(ws.reconcileExecution(plan,journal));assert.equal(lease.unknown,true);assert.equal(bridge.tabs.size,1);
+ }
+});
+
+test('uncertain close after terminal proof creates a new UNKNOWN and does not release',async t=>{
+ const {ws,bridge,upstream,journal,plan,lease}=await unknownRecovery(t);
+ upstream.drainExecution=async()=>({epoch:'e1'});
+ const request=bridge.request.bind(bridge);bridge.request=async(method,args)=>{if(method==='close')throw new OperationError('BRIDGE_TIMEOUT_OUTCOME_UNKNOWN',{outcome:'UNKNOWN'});return request(method,args);};
+ await assert.rejects(ws.reconcileExecution(plan,journal),/BRIDGE_TIMEOUT/);assert.equal(lease.unknown,true);assert.equal(bridge.tabs.size,1);
+});
+
+test('admin close preserves external-page protection before any drain',async t=>{
+ const {ws,bridge,upstream,journal,plan,lease}=await unknownRecovery(t);bridge.rows.get('root')[0].canClose=false;
+ upstream.drainExecution=async()=>assert.fail('protected page must not be drained for close');
+ await assert.rejects(ws.reconcileExecution(plan,journal),/PAGE_CLOSE_PROTECTED/);assert.equal(lease.unknown,true);
+});
 
 test('lazy workspace creation, atomic slot reuse, same-URL preservation and hard cap',async t=>{
  const {ws,bridge,upstream}=await setup(t);

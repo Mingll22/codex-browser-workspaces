@@ -9,6 +9,8 @@ import {checkpoint,operations,OperationError} from './operation.js';
 import {VERSION} from './version.js';
 import {controllerExited,type ControllerProcess} from './controller-process.js';
 import {PageLeases} from './leases.js';
+import type {Journal} from './journal.js';
+export interface ExecutionRecovery {root:string;pageId:string;requestId:string;tool:string;lastUsed:number;closePage:boolean;upstreamPid:number}
 interface Actor {root:string;detachedAt:number|null;owner?:ControllerProcess;closedAt?:number}
 interface Workspace {generation:string;closePending?:string;cleanupDone?:boolean}
 interface ThreadDirectory {resolveRoot(caller:string):string;displayTitle(root:string,cwd?:string):string}
@@ -140,6 +142,42 @@ export class Workspaces {
     try{await this.persist();await this.check(root,known.generation,known.page);const result=await fn();if(this.pages.has(known.key))this.leases.validate(token);return result;}
     catch(error:any){unknown=error.details?.outcome==='UNKNOWN'||/OUTCOME_UNKNOWN|PAGE_CLOSE_PENDING/.test(error.message);throw error;}
     finally{this.leases.finish(token,unknown);await this.persist();}
+  }
+  // Local admin entry only, while the broker maintenance socket is held. It
+  // does not attach a controller or impersonate the original lease owner.
+  async reconcileExecution(plan:ExecutionRecovery,journal:Journal){
+    if(!(PAGE_TOOLS as readonly string[]).includes(plan.tool)||typeof plan.closePage!=='boolean')throw new Error('EXECUTION_RECONCILE_INVALID_PLAN');
+    return this.lock('family:'+plan.root,async()=>{
+      await this.listing(plan.root);
+      const known=await this.known(plan.root,plan.root,plan.pageId),row=this.leases.snapshot()[known.key];
+      if(!row)throw new Error('EXECUTION_RECONCILE_STATE_CHANGED');
+      const token={key:known.key,version:known.version,owner:row.owner},membership=row.membership;
+      const validate=()=>{
+        this.leases.validate(token);const current=this.leases.snapshot()[known.key];
+        if(!current.unknown||current.executing||current.lastUsed!==plan.lastUsed||current.membership!==membership||membership!==`${plan.root}/${known.page.membershipId}`)throw new Error('EXECUTION_RECONCILE_STATE_CHANGED');
+      };
+      validate();const request=journal.unknownRequest(plan.requestId,token.owner,plan.tool,plan.lastUsed);
+      if(plan.closePage&&known.page.canClose===false)throw new Error('PAGE_CLOSE_PROTECTED');
+      const proof=await this.upstream.drainExecution(known.page.targetId,plan.upstreamPid,request.startedAt);
+      await this.check(plan.root,known.generation,known.page);validate();
+      this.leases.reconcile(token,plan.lastUsed);await this.persist();
+      journal.record({event:'execution_reconciled',requestId:plan.requestId,thread:token.owner,tool:plan.tool,outcome:'UNKNOWN'});await journal.flush();
+      let closed=false;
+      if(plan.closePage){
+        const operation=this.leases.begin(known.key,token.owner,token.version);let unknown=false;
+        try{
+          await this.persist();await this.check(plan.root,known.generation,known.page);
+          await this.bridge.request('close',{threadId:plan.root,tabId:known.page.tabId,targetId:known.page.targetId,membershipId:known.page.membershipId});
+          closed=true;this.leases.invalidate(known.key);this.pages.delete(known.key);
+        }catch(error:any){unknown=error.details?.outcome==='UNKNOWN'||/OUTCOME_UNKNOWN|PAGE_CLOSE_PENDING/.test(error.message);throw error;}
+        finally{this.leases.finish(operation,unknown);await this.persist();}
+        this.leases.release(known.key,token.owner,token.version);await this.persist();
+      }
+      const nativeListPages=await proof.readPages();
+      const after=await this.listing(plan.root);
+      if(closed&&after.pages.some(page=>page.targetId===known.page.targetId))throw new Error('PAGE_CLOSE_PENDING');
+      return {requestId:plan.requestId,originalOutcome:'UNKNOWN',execution:'TERMINATED',terminalEvidence:proof.terminalEvidence,upstreamEpoch:proof.epoch,upstreamPageId:proof.upstreamPageId,pageId:plan.pageId,pageBefore:known.page,closed,released:closed,lease:{...this.leases.snapshot()[known.key]},workspace:after.workspace,nativeListPages};
+    });
   }
   async collect(now=Date.now()){
     if(this.ttlMs===null&&this.closedThreadGraceMs===null)return;
