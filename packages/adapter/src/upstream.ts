@@ -5,6 +5,7 @@ import {checkpoint,operations,dispatched,OperationError} from './operation.js';
 import {VERSION} from './version.js';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
 export const PAGE_TOOLS=[
   'navigate_page','take_snapshot','take_screenshot','click','hover','fill','fill_form','drag',
   'press_key','type_text','wait_for','evaluate_script','handle_dialog','emulate',
@@ -97,6 +98,25 @@ export class Upstream {
       await new Promise(resolve=>setTimeout(resolve,100));
     }
     throw new Error('PAGE_GONE');
+  }
+  async drainExecution(targetId:string,expectedPid:number,requestStartedAt:number){
+    // Never ensure/reconnect: only the original process owns the old page mutex.
+    const client=this.client,epoch=this.epoch;
+    if(!client)throw new Error('EXECUTION_RECONCILE_TRANSPORT_MISSING');
+    const pid=(client.transport as StdioClientTransport)?.pid;
+    if(!pid||pid!==expectedPid)throw new Error('EXECUTION_RECONCILE_TRANSPORT_CHANGED');
+    const startedAt=Date.parse(execFileSync('ps',['-p',String(pid),'-o','lstart='],{encoding:'utf8',env:{...process.env,LC_ALL:'C'}}).trim());
+    if(!Number.isFinite(startedAt)||startedAt>=requestStartedAt)throw new Error('EXECUTION_RECONCILE_TRANSPORT_CHANGED');
+    const current=()=>{if(this.client!==client||this.epoch!==epoch)throw new Error('EXECUTION_RECONCILE_TRANSPORT_CHANGED');};
+    const call=async(name:string,args:Record<string,unknown>)=>{
+      current();const result=await client.callTool({name,arguments:{...args,__cbwTargetIds:[targetId],__cbwDeadline:Date.now()+20000}},undefined,{timeout:20000});current();
+      if(result.isError)throw new Error('EXECUTION_RECONCILE_UNPROVEN');return result;
+    };
+    const before=await call('list_pages',{}),data=before.structuredContent as any;
+    const pages=[...(data?.pages??[]),...(data?.extensionPages??[])].filter((p:any)=>p.targetId===targetId);
+    if(pages.length!==1||!Number.isSafeInteger(pages[0].id))throw new Error('EXECUTION_RECONCILE_TARGET_CHANGED');
+    await call('take_snapshot',{pageId:pages[0].id});
+    return {epoch,upstreamPageId:pages[0].id,terminalEvidence:'same_original_process_page_snapshot_completed',readPages:()=>call('list_pages',{})};
   }
   async close(){const client=this.client;this.client=undefined;await client?.close();}
 }

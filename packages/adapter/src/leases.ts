@@ -49,6 +49,11 @@ export class PageLeases {
     const row=this.rows.get(token.key);if(!row||row.version!==token.version||row.owner!==token.owner)return;
     row.executing=Math.max(0,row.executing-1);row.unknown||=unknown;
   }
+  reconcile(token:{key:string;version:number;owner:string},lastUsed:number){
+    this.validate(token);const row=this.rows.get(token.key)!;
+    if(!row.unknown||row.executing||row.lastUsed!==lastUsed)throw new Error('EXECUTION_RECONCILE_STATE_CHANGED');
+    row.unknown=false;row.expiresAt=this.now()+LEASE_MS;
+  }
   release(key:string,caller:string,version:number){
     const row=this.rows.get(key);if(!row)return;
     if(row.owner!==caller)throw new Error('PAGE_LEASE_BUSY');
