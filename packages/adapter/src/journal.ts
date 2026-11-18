@@ -6,7 +6,7 @@ export class Journal {
   private events:Event[]=[];
   private timer?:NodeJS.Timeout;
   private writes=Promise.resolve();
-  constructor(private path:string,private limit=200){}
+  constructor(private path:string,private limit=1000){}
   async load(){try{this.events=JSON.parse(await readFile(this.path,'utf8')).slice(-this.limit);}catch(e:any){if(e.code!=='ENOENT')throw e;}}
   record(event:Omit<Event,'at'>){
     this.events.push({at:Date.now(),...event});this.events=this.events.slice(-this.limit);

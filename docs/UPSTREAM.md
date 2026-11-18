@@ -79,6 +79,10 @@ input, navigation and other mutations never use this read recovery path. Restart
 still conservatively preserves existing UNKNOWN records; historical records need
 specific operation evidence and observed termination before administrative repair.
 
+The broker keeps the latest 1,000 diagnostic events in `events.json` under its
+state directory. Entries record request IDs, tool names, timings and outcomes.
+They omit tool arguments, URLs and page content.
+
 ### Explicit admin recovery of an existing UNKNOWN
 
 `scripts/reconcile-execution.mjs` is the local admin maintenance entry for a
