@@ -4,9 +4,10 @@ import {mkdtemp,rm,readFile,writeFile,mkdir,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Workspaces} from '../dist/adapter/src/workspaces.js';
-import {LEASE_MS} from '../dist/adapter/src/leases.js';
+import {LEASE_MS,UNKNOWN_LEASE_MS} from '../dist/adapter/src/leases.js';
 import {controllerProcess} from '../dist/adapter/src/controller-process.js';
-import {OperationError} from '../dist/adapter/src/operation.js';
+import {OperationError,operations} from '../dist/adapter/src/operation.js';
+import {UpstreamExecutionError} from '../dist/adapter/src/upstream.js';
 import {Journal} from '../dist/adapter/src/journal.js';
 
 // The rows describe actual Chrome group membership, including foreign tabs.
@@ -245,6 +246,93 @@ test('unknown upstream outcomes survive timeout and broker reload without releas
  await assert.rejects(ws.call('ca','a','release_page',{pageId:page.pageId}),/PAGE_EXECUTION_UNKNOWN/);
  const restored=make();await restored.load();assert.deepEqual(unwrap(await restored.call('new-b','b','list_pages',{})).pages,[]);
  await assert.rejects(restored.call('new-a','a','take_snapshot',{pageId:page.pageId}),/PAGE_EXECUTION_UNKNOWN/);
+});
+
+async function timedOutPage(t) {
+ const fixture=await setup(t,{families:{a:'root',b:'root'}});
+ const {ws,upstream,stateFile}=fixture;
+ const {pageId}=unwrap(await ws.call('ca','a','open_page',{url:'about:blank'}));
+ const originalCall=upstream.call;
+ const execution={targetId:'t1',pageId:1,epoch:upstream.epoch};
+ const failure=new UpstreamExecutionError('UPSTREAM_TIMEOUT_OUTCOME_UNKNOWN',execution,{outcome:'UNKNOWN'});
+ upstream.call=async()=>{throw failure;};
+ const op={id:'original-request',deadline:Date.now()+60000,signal:new AbortController().signal};
+ await assert.rejects(operations.run(op,()=>ws.call('ca','a','evaluate_script',{pageId,function:'()=>true'})),
+   error=>error===failure&&error.details.outcome==='UNKNOWN');
+ upstream.call=originalCall;
+ const journal=new Journal(stateFile+'.events');
+ await journal.load();
+ return {...fixture,pageId,execution,journal};
+}
+
+test('the first minute check clears protection after the original page queue drains',async t=>{
+ const {ws,bridge,clock,upstream,stateFile,execution,pageId,journal}=await timedOutPage(t);
+ const gate=deferred(),started=deferred();
+ upstream.checkPageExecution=async receipt=>{assert.deepEqual(receipt,execution);started.resolve();return gate.promise;};
+ const list=async()=>unwrap(await ws.call('ca','a','list_pages',{})).pages[0].lease;
+ const due=clock.now()+UNKNOWN_LEASE_MS;
+ assert.deepEqual(await list(),{status:'UNKNOWN',expiresAt:due});
+ const stored=JSON.parse(await readFile(stateFile,'utf8')).leases['g1/t1'].unknownCheck;
+ assert.equal(stored.receipt.requestId,'original-request');
+ assert.deepEqual(stored.receipt.upstream,execution);
+ clock.advance(UNKNOWN_LEASE_MS-1);
+ assert.equal(await ws.checkUnknownExecutions(journal,clock.now()),false);
+ clock.advance(1);
+ const checking=ws.checkUnknownExecutions(journal,clock.now());
+ await started.promise;
+ await assert.rejects(ws.call('ca','a','release_page',{pageId}),/PAGE_EXECUTION_UNKNOWN/);
+ assert.equal(bridge.tabs.size,1);
+ gate.resolve(true);
+ assert.equal(await checking,true);
+ assert.equal((await list()).status,'OWNED');
+ assert.equal(upstream.calls.filter(call=>call.name==='evaluate_script').length,0);
+ assert.equal(journal.recent('a').at(-1).event,'execution_reconciled');
+ assert.equal(journal.recent('a').at(-1).outcome,'UNKNOWN');
+ await ws.call('ca','a','release_page',{pageId});
+ await journal.flush();
+});
+
+test('three unknown checks release protection and preserve the original uncertainty across broker restarts',async t=>{
+ const {ws,clock,upstream,make,bridge,journal,execution,pageId}=await timedOutPage(t);
+ let checks=0;
+ upstream.checkPageExecution=async receipt=>{assert.deepEqual(receipt,execution);checks++;return false;};
+ clock.advance(UNKNOWN_LEASE_MS);
+ assert.equal(await ws.checkUnknownExecutions(journal,clock.now()),true);
+ const pending=ws.leases.snapshot()['g1/t1'].unknownCheck;
+ const restored=make();
+ await restored.load();
+ assert.deepEqual(restored.leases.snapshot()['g1/t1'].unknownCheck,pending);
+ assert.equal(await restored.checkUnknownExecutions(journal,clock.now()),false);
+ clock.advance(UNKNOWN_LEASE_MS);
+ assert.equal(await restored.checkUnknownExecutions(journal,clock.now()),true);
+ const read=async()=>unwrap(await restored.call('new-a','a','list_pages',{})).pages[0].lease;
+ assert.deepEqual(await read(),{status:'UNKNOWN',expiresAt:clock.now()+UNKNOWN_LEASE_MS});
+ await assert.rejects(restored.call('new-a','a','release_page',{pageId}),/PAGE_EXECUTION_UNKNOWN/);
+ clock.advance(UNKNOWN_LEASE_MS);
+ assert.equal(await restored.checkUnknownExecutions(journal,clock.now()),true);
+ assert.equal(checks,3);
+ assert.equal(await restored.checkUnknownExecutions(journal,clock.now()),false);
+ assert.equal((await read()).status,'OWNED');
+ assert.equal(bridge.tabs.size,1);
+ assert.deepEqual(journal.recent('a').map(row=>[row.event,row.outcome]),[
+   ['execution_check_unknown','UNKNOWN'],['execution_check_unknown','UNKNOWN'],['execution_protection_expired','UNKNOWN'],
+ ]);
+ await restored.call('new-a','a','release_page',{pageId});
+ await journal.flush();
+});
+
+test('automatic proof cannot clear protection for a moved page',async t=>{
+ const {ws,clock,upstream,bridge,journal}=await timedOutPage(t);
+ upstream.checkPageExecution=async()=>{
+   bridge.join('other',bridge.tabs.get(1));
+   return true;
+ };
+ clock.advance(UNKNOWN_LEASE_MS);
+ assert.equal(await ws.checkUnknownExecutions(journal,clock.now()),true);
+ assert.equal(ws.leases.snapshot()['g1/t1'].unknown,true);
+ assert.equal(journal.recent('a').at(-1).event,'execution_check_unknown');
+ assert.equal(bridge.tabs.size,1);
+ await journal.flush();
 });
 
 test('target execution remains occupied after manual movement to another family and a new membership',async t=>{

@@ -38,7 +38,7 @@ upload_file
 
 ## 超时与不可用
 
-上游请求有 25 秒边界并受总请求 deadline 限制。普通超时返回 `UPSTREAM_TIMEOUT_OUTCOME_UNKNOWN`，取消返回 `REQUEST_CANCELLED`；两者保留共享上游进程和引用 epoch。实际 transport 关闭才使 epoch 失效并在下一次新请求重新连接；不重放点击、提交或导航。浏览器已经收到的操作可能继续执行，原页面锁保留到实际执行结束，其他页面仍可操作。
+上游请求有 25 秒边界并受总请求 deadline 限制。普通超时返回 `UPSTREAM_TIMEOUT_OUTCOME_UNKNOWN`，取消返回 `REQUEST_CANCELLED`；两者保留共享上游进程和引用 epoch。实际 transport 关闭才使 epoch 失效并在下一次新请求重新连接；不重放点击、提交或导航。浏览器已经收到的操作可能继续执行，同页互斥锁跟随上游 handler，Broker 按下文规则检查 UNKNOWN 租约。其他页面仍可操作。
 
 ## 0.3.0：1.11.0 升级与弹窗恢复
 
@@ -74,10 +74,24 @@ snapshot of the exact scoped page. The upstream per-page mutex keeps that snapsh
 behind the previous handler. Only a successful snapshot proves the previous read
 ended; the adapter then reports `UPSTREAM_READ_FAILED` with outcome `FAILED`, keeps
 fresh-state guidance, and releases execution occupancy. It does not replay the
-failed request. A failed drain preserves UNKNOWN. Arbitrary `evaluate_script`,
-input, navigation and other mutations never use this read recovery path. Restart
-still conservatively preserves existing UNKNOWN records; historical records need
-specific operation evidence and observed termination before administrative repair.
+failed request. A failed drain leaves the lease UNKNOWN. Arbitrary
+`evaluate_script`, input, navigation and other mutations return the original
+timeout or uncertainty to the caller.
+
+The broker persists each UNKNOWN lease for 60 seconds and then checks it. For
+eligible page calls it saves the original request, lease, target and upstream
+epoch in the lease state. A scoped snapshot on that original page queue can
+confirm that the old handler exited, after which the ordinary lease rules apply.
+Each of the first two inconclusive checks renews UNKNOWN for 60 seconds. Three consecutive
+inconclusive checks remove the UNKNOWN protection and record
+`execution_protection_expired`; the original outcome remains UNKNOWN.
+Checks and deadlines survive broker restarts. Legacy entries and calls without
+an exact upstream receipt use the same bounded schedule. The broker never
+replays the original action.
+
+On UNKNOWN, a thread can wait about three minutes and call `list_pages` again.
+Once the page is usable, reads can be retried as needed. Check the previous
+outcome before retrying a mutation.
 
 The broker keeps the latest 1,000 diagnostic events in `events.json` under its
 state directory. Entries record request IDs, tool names, timings and outcomes.
@@ -104,7 +118,8 @@ The inspector is closed before maintenance ends. Browser calls continue through
 the original official MCP client; no second client or browser connection is
 created to operate the page.
 
-Recovery checks the original UNKNOWN journal request, exact lease and membership,
+Recovery checks the persisted original receipt when available, or the journal
+for legacy requests, together with the exact lease and membership,
 and an upstream process that predates the request. The original client maps the
 exact target and completes a snapshot behind its existing page mutex. Failure,
 transport replacement or identity changes leave UNKNOWN intact. Success proves

@@ -2,23 +2,29 @@ import {readFile,writeFile,rename,mkdir} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {Controllers,threadTitle} from './identity.js';
 import {Bridge,type Page} from './bridge.js';
-import {Upstream,PAGE_TOOLS} from './upstream.js';
+import {Upstream,PAGE_TOOLS,UpstreamExecutionError} from './upstream.js';
 import {leasedPageHandle,inputReferences,outputReferences} from './references.js';
 import type {CallToolResult} from '@modelcontextprotocol/sdk/types.js';
 import {checkpoint,operations,OperationError} from './operation.js';
 import {VERSION} from './version.js';
 import {controllerExited,type ControllerProcess} from './controller-process.js';
-import {PageLeases} from './leases.js';
+import {PageLeases,type ExecutionReceipt,type Lease} from './leases.js';
 import type {Journal} from './journal.js';
 export interface ExecutionRecovery {root:string;pageId:string;requestId:string;tool:string;lastUsed:number;closePage:boolean;upstreamPid:number}
 interface Actor {root:string;detachedAt:number|null;owner?:ControllerProcess;closedAt?:number}
 interface Workspace {generation:string;closePending?:string;cleanupDone?:boolean}
 interface ThreadDirectory {resolveRoot(caller:string):string;displayTitle(root:string,cwd?:string):string}
 export const textResult=(value:unknown):CallToolResult=>({content:[{type:'text',text:JSON.stringify(value)}]});
+function executionReceipt(error:unknown,root:string,page:Page|undefined,tool:string):ExecutionReceipt|undefined{
+  const op=operations.getStore();
+  if(error instanceof UpstreamExecutionError&&op&&page){
+    return {requestId:op.id,tool,root,tabId:page.tabId,membershipId:page.membershipId,upstream:error.pageExecution};
+  }
+}
 export class Workspaces {
   readonly controllers=new Controllers();
   readonly leases:PageLeases;
-  diagnostics(){return {activeThreads:this.controllers.count,leasedTargets:Object.entries(this.leases.snapshot()).filter(([key])=>this.leases.held(key)).map(([key,lease])=>({targetId:key.slice(key.indexOf('/')+1),expiresAt:lease.expiresAt,executing:lease.executing,unknown:lease.unknown}))};}
+  diagnostics(){return {activeThreads:this.controllers.count,leasedTargets:Object.entries(this.leases.snapshot()).filter(([key])=>this.leases.held(key)).map(([key,lease])=>({targetId:key.slice(key.indexOf('/')+1),expiresAt:lease.unknownCheck?.expiresAt??lease.expiresAt,executing:lease.executing,unknown:lease.unknown}))};}
   private records:Record<string,Workspace>={};
   private actors:Record<string,Actor>={};
   private pages=new Map<string,{root:string;generation:string;page:Page}>();
@@ -27,9 +33,11 @@ export class Workspaces {
   private titles=new Map<string,{value:string;until:number}>();
   constructor(readonly bridge:Bridge,readonly upstream:Upstream,private stateFile:string,private maxTabs=8,private ttlMs:number|null=null,private title=(thread:string,cwd?:string)=>threadTitle(thread,undefined,cwd),private closedThreadGraceMs:number|null=30000,private threads?:ThreadDirectory,now=()=>Date.now()){this.leases=new PageLeases(now);}
   async load(){
-    try{const data=JSON.parse(await readFile(this.stateFile,'utf8'));this.records=data.workspaces??{};this.actors=data.actors??{};this.leases.load(data.leases);}
+    let initialized=false;
+    try{const data=JSON.parse(await readFile(this.stateFile,'utf8'));this.records=data.workspaces??{};this.actors=data.actors??{};initialized=this.leases.load(data.leases);}
     catch(e:any){if(e.code!=='ENOENT')throw e;}
     for(const actor of Object.values(this.actors))actor.detachedAt??=Date.now();
+    if(initialized)await this.persist();
   }
   private persist(){
     const data=JSON.stringify({version:2,workspaces:this.records,actors:this.actors,leases:this.leases.snapshot()});
@@ -88,6 +96,7 @@ export class Workspaces {
         const current=await this.listing(root),allowedTargetIds=current.pages.filter(page=>this.leases.view(this.key(root,current.generation,page),caller).visible).map(page=>page.targetId);
         let token:ReturnType<PageLeases['begin']>|undefined;
         let result,unknown=false;
+        let receipt:ExecutionReceipt|undefined;
         try{
           if(name==='move_tab_to_workspace'){
             const match=/^candidate:([^:]+):([^:]+):(\d+)$/.exec(args.pageId);
@@ -112,12 +121,16 @@ export class Workspaces {
           if(name==='open_page'&&page.url!==args.url){const map=await this.upstream.mapping([page.targetId]);await this.check(root,result.generation,page);const response=await this.upstream.call('navigate_page',{pageId:map.get(page.targetId),url:args.url},[page.targetId]);if(response.isError)return outputReferences(response,pageId,this.upstream.epoch,map.get(page.targetId)!);}
           const after=await this.check(root,result.generation,page);this.leases.validate(token);
           return textResult({pageId,url:after.page.url,slot:after.page.slot,reused:result.reused,canClose:after.page.canClose});
-        }catch(error:any){unknown=error.details?.outcome==='UNKNOWN'||/OUTCOME_UNKNOWN|PAGE_CLOSE_PENDING/.test(error.message);throw error;}
-        finally{if(token){this.leases.finish(token,unknown);if(!result&&token.newGrant&&!unknown)this.leases.release(token.key,caller,token.version);await this.persist();}}
+        }catch(error:any){
+          unknown=error.details?.outcome==='UNKNOWN'||/OUTCOME_UNKNOWN|PAGE_CLOSE_PENDING/.test(error.message);
+          receipt=executionReceipt(error,root,result?.page,name);
+          throw error;
+        }
+        finally{if(token){this.leases.finish(token,unknown,receipt);if(!result&&token.newGrant&&!unknown)this.leases.release(token.key,caller,token.version);await this.persist();}}
       });
       const known=await this.known(root,caller,args.pageId);
       if(name==='release_page'){this.leases.release(known.key,caller,known.version);await this.persist();return textResult({released:true,pageId:args.pageId});}
-      return this.operate(root,caller,known,args.pageId,async()=>{
+      return this.operate(root,caller,known,name,async()=>{
         const page=known.page;
         if(name==='close_page'||name==='set_page_retention'){
           if(name==='close_page'&&page.canClose===false)throw new Error('PAGE_CLOSE_PROTECTED');
@@ -136,17 +149,53 @@ export class Workspaces {
       });
     });
   }
-  private async check(root:string,generation:string,page:Page){const checked=await this.bridge.request('check',{threadId:root,tabId:page.tabId,targetId:page.targetId,membershipId:page.membershipId});if(checked.generation!==generation)throw new Error('WORKSPACE_RESTORE_REQUIRED');if(checked.page.membershipId!==page.membershipId)throw new OperationError('PAGE_REFERENCE_EXPIRED',{outcome:'UNKNOWN'});return checked;}
-  private async operate(root:string,caller:string,known:{key:string;version:number;generation:string;page:Page},pageId:string,fn:()=>Promise<CallToolResult>){
+  private async check(root:string,generation:string,page:Pick<Page,'tabId'|'targetId'|'membershipId'>){const checked=await this.bridge.request('check',{threadId:root,tabId:page.tabId,targetId:page.targetId,membershipId:page.membershipId});if(checked.generation!==generation)throw new Error('WORKSPACE_RESTORE_REQUIRED');if(checked.page.membershipId!==page.membershipId)throw new OperationError('PAGE_REFERENCE_EXPIRED',{outcome:'UNKNOWN'});return checked;}
+  private async operate(root:string,caller:string,known:{key:string;version:number;generation:string;page:Page},tool:string,fn:()=>Promise<CallToolResult>){
     const token=this.leases.begin(known.key,caller,known.version);let unknown=false;
+    let receipt:ExecutionReceipt|undefined;
     try{await this.persist();await this.check(root,known.generation,known.page);const result=await fn();if(this.pages.has(known.key))this.leases.validate(token);return result;}
-    catch(error:any){unknown=error.details?.outcome==='UNKNOWN'||/OUTCOME_UNKNOWN|PAGE_CLOSE_PENDING/.test(error.message);throw error;}
-    finally{this.leases.finish(token,unknown);await this.persist();}
+    catch(error:any){
+      unknown=error.details?.outcome==='UNKNOWN'||/OUTCOME_UNKNOWN|PAGE_CLOSE_PENDING/.test(error.message);
+      receipt=executionReceipt(error,root,known.page,tool);
+      throw error;
+    }
+    finally{this.leases.finish(token,unknown,receipt);await this.persist();}
+  }
+  private async confirmUnknownExecution(key:string,lease:Lease,receipt:ExecutionReceipt){
+    const [generation,targetId]=key.split('/');
+    const membership=`${receipt.root}/${receipt.membershipId}`;
+    if(targetId!==receipt.upstream.targetId||lease.membership!==membership)return false;
+    try{
+      if(!await this.upstream.checkPageExecution(receipt.upstream))return false;
+      await this.check(receipt.root,generation,{...receipt,targetId});
+      return this.upstream.epoch===receipt.upstream.epoch&&lease.membership===membership;
+    }catch{
+      return false;
+    }
+  }
+  async checkUnknownExecutions(journal:Journal,now=Date.now()){
+    const checks=Object.entries(this.leases.snapshot()).flatMap(([key,lease])=>{
+      const check=lease.unknownCheck;
+      if(!check||lease.executing||check.expiresAt>now)return [];
+      return [{key,lease,check}];
+    });
+    const results=await Promise.allSettled(checks.map(async ({key,lease,check})=>{
+      const receipt=check.receipt;
+      const terminated=receipt!==undefined&&await this.confirmUnknownExecution(key,lease,receipt);
+      const event=this.leases.completeUnknownCheck(key,check,terminated);
+      if(!event)return false;
+      await this.persist();
+      journal.record({event,requestId:receipt?.requestId,thread:lease.owner,tool:receipt?.tool,outcome:'UNKNOWN'});
+      return true;
+    }));
+    const error=results.find(result=>result.status==='rejected');
+    if(error)throw error.reason;
+    return results.some(result=>result.status==='fulfilled'&&result.value);
   }
   // Local admin entry only, while the broker maintenance socket is held. It
   // does not attach a controller or impersonate the original lease owner.
   async reconcileExecution(plan:ExecutionRecovery,journal:Journal){
-    if(!(PAGE_TOOLS as readonly string[]).includes(plan.tool)||typeof plan.closePage!=='boolean')throw new Error('EXECUTION_RECONCILE_INVALID_PLAN');
+    if((plan.tool!=='open_page'&&!(PAGE_TOOLS as readonly string[]).includes(plan.tool))||plan.tool==='handle_dialog'||typeof plan.closePage!=='boolean')throw new Error('EXECUTION_RECONCILE_INVALID_PLAN');
     return this.lock('family:'+plan.root,async()=>{
       await this.listing(plan.root);
       const known=await this.known(plan.root,plan.root,plan.pageId),row=this.leases.snapshot()[known.key];
@@ -156,9 +205,14 @@ export class Workspaces {
         this.leases.validate(token);const current=this.leases.snapshot()[known.key];
         if(!current.unknown||current.executing||current.lastUsed!==plan.lastUsed||current.membership!==membership||membership!==`${plan.root}/${known.page.membershipId}`)throw new Error('EXECUTION_RECONCILE_STATE_CHANGED');
       };
-      validate();const request=journal.unknownRequest(plan.requestId,token.owner,plan.tool,plan.lastUsed);
+      validate();
+      const receipt=row.unknownCheck?.receipt;
+      if(plan.tool==='open_page'&&!receipt)throw new Error('EXECUTION_RECONCILE_REQUEST_MISMATCH');
+      if(receipt&&(receipt.requestId!==plan.requestId||receipt.tool!==plan.tool||receipt.root!==plan.root||receipt.membershipId!==known.page.membershipId||receipt.upstream.targetId!==known.page.targetId))throw new Error('EXECUTION_RECONCILE_REQUEST_MISMATCH');
+      if(receipt&&receipt.upstream.epoch!==this.upstream.epoch)throw new Error('EXECUTION_RECONCILE_TRANSPORT_CHANGED');
+      const startedAt=receipt?row.lastUsed:journal.unknownRequest(plan.requestId,token.owner,plan.tool,plan.lastUsed).startedAt;
       if(plan.closePage&&known.page.canClose===false)throw new Error('PAGE_CLOSE_PROTECTED');
-      const proof=await this.upstream.drainExecution(known.page.targetId,plan.upstreamPid,request.startedAt);
+      const proof=await this.upstream.drainExecution(known.page.targetId,plan.upstreamPid,startedAt);
       await this.check(plan.root,known.generation,known.page);validate();
       this.leases.reconcile(token,plan.lastUsed);await this.persist();
       journal.record({event:'execution_reconciled',requestId:plan.requestId,thread:token.owner,tool:plan.tool,outcome:'UNKNOWN'});await journal.flush();
