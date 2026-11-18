@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {homedir,tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {threadIdentity,Controllers,threadTitle} from '../dist/adapter/src/identity.js';
 const a='11111111-1111-4111-8111-111111111111';
@@ -52,6 +52,23 @@ test('registered project roots use the longest directory match without sibling-p
  assert.equal(threadTitle(a,path),'[管理端]修复');
  db.prepare('UPDATE threads SET cwd=? WHERE id=?').run('/workspace/trip-other',a);
  assert.equal(threadTitle(a,path),'[trip-other]修复');
+});
+test('checkout directories under ~/data use their containing project for the group label',async t=>{
+ const {db,path}=await titleFixture(t),project=join(homedir(),'data','PitchEdge');
+ db.prepare('INSERT INTO projects VALUES (?,?)').run('checkout','dev');
+ db.prepare('INSERT INTO project_roots VALUES (?,?)').run('checkout',join(project,'dev'));
+ db.prepare('INSERT INTO threads VALUES (?,?,?,?,?)').run(a,null,'修复',join(project,'dev'),'checkout');
+ assert.equal(threadTitle(a,path,join(homedir(),'data','Other','dev')),'[PitchEdge]修复');
+ db.prepare('UPDATE threads SET project_id=NULL WHERE id=?').run(a);
+ for(const checkout of ['dev/backend/src','main','tasks/fix/model/backend/src']){
+  db.prepare('UPDATE threads SET cwd=? WHERE id=?').run(join(project,checkout),a);
+  assert.equal(threadTitle(a,path),'[PitchEdge]修复');
+ }
+});
+test('client cwd uses the normalized ~/data boundary for an unpersisted group label',()=>{
+ const unavailable='/nonexistent/cbw.db',home=homedir();
+ assert.equal(threadTitle(a,unavailable,`${home}/data/PitchEdge/dev/../../Other/tasks/fix/topic`),'[Other]Codex 11111111');
+ assert.equal(threadTitle(a,unavailable,join(home,'data-other','PitchEdge')),'[PitchEdge]Codex 11111111');
 });
 test('nested checkout and linked worktree resolve to the original repository name',async t=>{
  const {dir,path,db}=await titleFixture(t),repo=join(dir,'PitchEdge'),git=join(repo,'.git'),work=join(dir,'temporary-branch');
