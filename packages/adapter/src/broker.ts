@@ -1,4 +1,4 @@
-import {operations,checkpoint,bounded,errorDetails} from './operation.js';
+import {operations,checkpoint,bounded,errorDetails,UNKNOWN_EXECUTION_GUIDANCE} from './operation.js';
 import {Journal} from './journal.js';
 import {VERSION} from './version.js';
 import {createServer,type Socket} from 'node:net';
@@ -40,7 +40,11 @@ const threads=new CodexThreads();
 const workspace=new Workspaces(bridge,upstream,join(config.stateDir,'workspaces.json'),config.maxTabs,config.detachedTtlMs,undefined,config.closedThreadGraceMs,threads);
 await workspace.load();
 const journal=new Journal(join(config.stateDir,'events.json'));await journal.load();journal.record({event:'broker_started'});
-const tools=[...ownTools,...await upstream.tools()];
+const tools=[...ownTools,...await upstream.tools()].map(tool=>
+  ['list_pages','release_page','evaluate_script'].includes(tool.name)
+    ?{...tool,description:`${tool.description??''} ${UNKNOWN_EXECUTION_GUIDANCE}`}
+    :tool
+);
 const ajv=new Ajv({strict:false,allErrors:false});
 const validators=new Map(tools.map(t=>[t.name,ajv.compile(t.inputSchema)]));
 const sockets=new Set<Socket>();
@@ -52,6 +56,7 @@ let stopping=false;
 let maintenanceOwner:Socket|undefined;
 let activeCalls=0;
 let collecting=false;
+let checkingExecutions:Promise<void>|undefined;
 const server=createServer(socket=>{
   sockets.add(socket);const connection=randomUUID();let buffer='';let queue=Promise.resolve();let clientVersion='legacy';const requests=new Map<unknown,AbortController>();
   let clientProcess:ControllerProcess|undefined;
@@ -103,7 +108,7 @@ const server=createServer(socket=>{
             await upstream.addRoot(params.cwd);clientProcess=owner;clientCwd=params.cwd;clientVersion=typeof params.version==='string'?params.version:'legacy';clients.add(socket);publishStatus();result={version:VERSION};
           }else if(method==='maintenance'){
             if(params.enabled===false){if(maintenanceOwner!==socket)throw new Error('MAINTENANCE_NOT_OWNED');maintenanceOwner=undefined;}
-            else {if(activeCalls||collecting||maintenanceOwner&&maintenanceOwner!==socket)throw new Error('UPGRADE_BUSY');maintenanceOwner=socket;}
+            else {if(activeCalls||collecting||checkingExecutions||maintenanceOwner&&maintenanceOwner!==socket)throw new Error('UPGRADE_BUSY');maintenanceOwner=socket;}
             result={maintenance:!!maintenanceOwner,activeCalls};
           }else throw new Error('INVALID_BROKER_METHOD');
           if(!socket.destroyed)socket.write(JSON.stringify({id,result})+'\n');
@@ -126,12 +131,17 @@ const gc=setInterval(()=>{
   if(collecting||maintenanceOwner)return;collecting=true;
   void workspace.collect().catch(error=>console.error('Collection failed:',error.message)).finally(()=>{collecting=false;});
 },Math.min(config.detachedTtlMs??60000,config.closedThreadGraceMs===null?60000:5000));gc.unref();
+const executionCheckTimer=setInterval(()=>{
+  if(maintenanceOwner||checkingExecutions)return;
+  checkingExecutions=workspace.checkUnknownExecutions(journal).then(changed=>{if(changed)publishStatus();})
+    .catch(error=>console.error('Execution check failed:',error.message)).finally(()=>{checkingExecutions=undefined;});
+},1000);executionCheckTimer.unref();
 console.log('Codex Browser Workspaces broker ready:',config.socket);
 async function stop(){
-  if(stopping)return;stopping=true;clearInterval(gc);
+  if(stopping)return;stopping=true;clearInterval(gc);clearInterval(executionCheckTimer);
   for(const socket of sockets)socket.destroy();
   await new Promise<void>(resolve=>server.close(()=>resolve()));
-  await upstream.close();await bridge.close();threads.close();journal.record({event:'broker_stopped'});await journal.flush();
+  await checkingExecutions;await upstream.close();await bridge.close();threads.close();journal.record({event:'broker_stopped'});await journal.flush();
   try{await unlink(config.socket);}catch(error:any){if(error.code!=='ENOENT')throw error;}
 }
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>void stop().then(()=>process.exit()));

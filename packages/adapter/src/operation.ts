@@ -1,4 +1,5 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
+export const UNKNOWN_EXECUTION_GUIDANCE='If a page operation reports UNKNOWN or PAGE_EXECUTION_UNKNOWN, wait about three minutes and call list_pages again. When the page is usable, retry reads if needed. Before retrying an operation that may have changed state, verify what actually happened.';
 export interface Operation {id:string;signal:AbortSignal;deadline:number;thread?:string;dispatched?:boolean}
 export const operations=new AsyncLocalStorage<Operation>();
 export class OperationError extends Error {
@@ -23,7 +24,7 @@ export function bounded<T>(promise:Promise<T>,signal?:AbortSignal):Promise<T>{
 }
 export function errorDetails(error:any){
   const code=/^[A-Z][A-Z0-9_]+$/.test(error?.message)?error.message:'WORKSPACE_OPERATION_FAILED';
-  const recovery:Record<string,string>={PAGE_NOT_OWNED:'list_pages_then_open_page',WORKSPACE_RESTORE_REQUIRED:'acknowledge_with_reset_workspace',BRIDGE_DISCONNECTED:'wait_for_extension_connection',UPSTREAM_DISCONNECTED_OUTCOME_UNKNOWN:'inspect_page_before_retry'};
+  const recovery:Record<string,string>={PAGE_NOT_OWNED:'list_pages_then_open_page',WORKSPACE_RESTORE_REQUIRED:'acknowledge_with_reset_workspace',BRIDGE_DISCONNECTED:'wait_for_extension_connection',UPSTREAM_DISCONNECTED_OUTCOME_UNKNOWN:'inspect_page_before_retry',PAGE_EXECUTION_UNKNOWN:'wait_3_minutes_then_list_pages'};
   const op=operations.getStore();
   return {code,outcome:op?(op.dispatched?'UNKNOWN':'NOT_STARTED'):'UNKNOWN',...(recovery[code]?{nextAction:recovery[code]}:{}),...error?.details};
 }
