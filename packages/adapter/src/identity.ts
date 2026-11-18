@@ -1,7 +1,7 @@
 import {DatabaseSync} from 'node:sqlite';
 import {existsSync,readFileSync,statSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {join,basename,dirname,resolve,win32} from 'node:path';
+import {join,basename,dirname,isAbsolute,relative,resolve,sep,win32} from 'node:path';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function threadIdentity(meta:unknown):string {
   if(!meta||typeof meta!=='object'||Array.isArray(meta))throw new Error('THREAD_IDENTITY_UNAVAILABLE');
@@ -34,6 +34,11 @@ export class Controllers {
 }
 const compact=(value:string|undefined|null)=>(value??'').replace(/\s+/gu,' ').trim();
 function shorten(value:string,max:number){const chars=Array.from(value);return chars.length>max?chars.slice(0,max-1).join('')+'…':value;}
+function dataProject(cwd:string|undefined):string {
+  if(!cwd||!isAbsolute(cwd))return '';
+  const [project]=relative(join(homedir(),'data'),cwd).split(sep,1);
+  return project==='..'?'':compact(project);
+}
 function directoryProject(cwd:string|undefined):string {
   if(!cwd)return '';
   if(win32.isAbsolute(cwd)&&!cwd.startsWith('/'))return win32.basename(cwd.replace(/[\\/]+$/u,''));
@@ -55,8 +60,8 @@ function directoryProject(cwd:string|undefined):string {
   return basename(resolve(cwd));
 }
 const defaultDatabase=()=>join(process.env.CODEX_HOME??join(homedir(),'.codex'),'state_5.sqlite');
-function displayLabel(thread:string,cwd:string|undefined,title='',project=''):string {
-  title||=`Codex ${thread.slice(0,8)}`;project||=compact(directoryProject(cwd));
+function displayLabel(thread:string,title:string,project:string):string {
+  title||=`Codex ${thread.slice(0,8)}`;
   const prefix=project?`[${shorten(project,32)}]`:'';
   if(project&&title.startsWith(`[${project}]`))title=title.slice(project.length+2);
   else if(prefix&&title.startsWith(prefix))title=title.slice(prefix.length);
@@ -123,20 +128,20 @@ export class CodexThreads {
     const row=this.read<{name:string|null;title:string;cwd:string;project:string|null}>(
       'SELECT t.name, t.title, t.cwd, p.name AS project FROM threads t LEFT JOIN projects p ON p.id=t.project_id WHERE t.id=?',[root],'title');
     const cwd=row?.cwd||clientCwd,title=compact(row?.name)||compact(row?.title);
-    let project=compact(row?.project);
+    let project=dataProject(cwd)||compact(row?.project);
     if(!project&&cwd){
       const registered=this.read<{name:string}>(
         "SELECT p.name FROM project_roots r JOIN projects p ON p.id=r.project_id WHERE ?=r.path OR substr(?,1,length(r.path)+1)=r.path||'/' ORDER BY length(r.path) DESC LIMIT 1",[cwd,cwd],'title');
       project=compact(registered?.name);
     }
-    return displayLabel(root,cwd,title,project);
+    return displayLabel(root,title,project||compact(directoryProject(cwd)));
   }
   close(){if(this.closed)return;this.db?.close();this.db=undefined;this.closed=true;}
 }
 
 // Kept for standalone callers; the shared broker uses its CodexThreads instance.
 export function threadTitle(thread:string,dbPath=defaultDatabase(),clientCwd?:string):string {
-  if(!existsSync(dbPath))return displayLabel(thread,clientCwd);
+  if(!existsSync(dbPath))return displayLabel(thread,'',dataProject(clientCwd)||compact(directoryProject(clientCwd)));
   const threads=new CodexThreads(dbPath);
   try{return threads.displayTitle(thread,clientCwd);}finally{threads.close();}
 }
