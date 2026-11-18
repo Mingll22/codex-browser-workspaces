@@ -13,6 +13,10 @@ export const PAGE_TOOLS=[
 ] as const;
 // Only tools whose handlers observe page state. evaluate_script is arbitrary code.
 const READ_ONLY_TOOLS=new Set(['wait_for','take_snapshot','list_network_requests','get_network_request','list_console_messages','get_console_message']);
+export type PageExecution={targetId:string;pageId:number;epoch:string};
+export class UpstreamExecutionError extends OperationError {
+  constructor(code:string,readonly pageExecution:PageExecution,details:Record<string,unknown>){super(code,details);}
+}
 export class Upstream {
   epoch=randomUUID();
   private client?:Client;
@@ -59,28 +63,43 @@ export class Upstream {
     const deadline=Date.now()+timeout;
     // Leave time to receive the wait handler's terminal timeout response.
     const input=name==='wait_for'?{...args,timeout:Math.min(Number(args.timeout)||30000,Math.max(1,timeout-1000))}:args;
+    // handle_dialog uses a separate queue and cannot be checked with a snapshot.
+    const [targetId]=targetIds;
+    const pageExecution:PageExecution|undefined=this.client===client&&name!=='handle_dialog'&&
+      (PAGE_TOOLS as readonly string[]).includes(name)&&targetIds.length===1&&targetId&&
+      typeof input.pageId==='number'&&Number.isSafeInteger(input.pageId)&&input.pageId>0
+      ?{targetId,pageId:input.pageId,epoch:this.epoch}:undefined;
     dispatched();
     try{return await client.callTool({name,arguments:{...input,__cbwTargetIds:targetIds,__cbwDeadline:deadline}},undefined,{timeout,signal:op?.signal}) as CallToolResult;}
     catch(e:any){
-      // A transport timeout does not prove that the page handler has ended.
-      // The scoped snapshot uses the same upstream per-page mutex: a terminal
-      // response proves the previous read released it, without replaying the read.
-      // Keep the lease executing until this independent bounded drain finishes.
-      if(READ_ONLY_TOOLS.has(name)&&typeof args.pageId==='number'&&this.client===client){
-        try{
-          const drained=await client.callTool({name:'take_snapshot',arguments:{pageId:args.pageId,__cbwTargetIds:targetIds,__cbwDeadline:Date.now()+20000}},undefined,{timeout:20000}) as CallToolResult;
-          if(!drained.isError)throw new OperationError('UPSTREAM_READ_FAILED',{outcome:'FAILED',terminalEvidence:'same_page_snapshot_completed',nextAction:'read_fresh_page_state'});
-        }catch(drainError){
-          if(drainError instanceof OperationError)throw drainError;
-          // No terminal proof: preserve UNKNOWN, including on disconnect.
-        }
+      // Keep the lease executing until this independent bounded read drain finishes.
+      if(pageExecution&&READ_ONLY_TOOLS.has(name)&&await this.probePageExecution(pageExecution,20000)){
+        throw new OperationError('UPSTREAM_READ_FAILED',{outcome:'FAILED',terminalEvidence:'same_page_snapshot_completed',nextAction:'read_fresh_page_state'});
       }
       // SDK cancellation/timeout must not tear down other threads' healthy transport.
-      if(op?.signal.aborted)throw new OperationError('REQUEST_CANCELLED',{outcome:'UNKNOWN',nextAction:'inspect_page_before_retry'});
-      if(e.code===-32001)throw new OperationError('UPSTREAM_TIMEOUT_OUTCOME_UNKNOWN',{outcome:'UNKNOWN',nextAction:'inspect_page_before_retry'});
-      if(this.client!==client)throw new Error('UPSTREAM_DISCONNECTED_OUTCOME_UNKNOWN');
-      throw new OperationError('UPSTREAM_REQUEST_FAILED',{outcome:'UNKNOWN',nextAction:'inspect_page_before_retry'});
+      const code=op?.signal.aborted?'REQUEST_CANCELLED':
+        e?.code===-32001?'UPSTREAM_TIMEOUT_OUTCOME_UNKNOWN':
+        this.client!==client?'UPSTREAM_DISCONNECTED_OUTCOME_UNKNOWN':'UPSTREAM_REQUEST_FAILED';
+      const details={outcome:'UNKNOWN',nextAction:'wait_3_minutes_then_list_pages'};
+      if(pageExecution)throw new UpstreamExecutionError(code,pageExecution,details);
+      throw new OperationError(code,details);
     }
+  }
+
+  async checkPageExecution(execution:PageExecution):Promise<boolean> {
+    return this.probePageExecution(execution,10000);
+  }
+  private async probePageExecution({targetId,pageId,epoch}:PageExecution,timeout:number):Promise<boolean> {
+    // Only the original upstream client owns the original per-page mutex.
+    const client=this.client;
+    if(!client||this.epoch!==epoch||!targetId||!Number.isSafeInteger(pageId)||pageId<1)return false;
+    try{
+      const result=await client.callTool({
+        name:'take_snapshot',
+        arguments:{pageId,__cbwTargetIds:[targetId],__cbwDeadline:Date.now()+timeout},
+      },undefined,{timeout});
+      return this.client===client&&this.epoch===epoch&&!result.isError;
+    }catch{return false;}
   }
 
   async mapping(targetIds:string[]):Promise<Map<string,number>> {

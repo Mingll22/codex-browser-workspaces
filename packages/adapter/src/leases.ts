@@ -1,13 +1,27 @@
 import {LeaseStatus} from '../../protocol/src/contracts.js';
 import {OperationError} from './operation.js';
+import type {PageExecution} from './upstream.js';
 
 export const LEASE_MS=5*60_000;
-export type Lease={version:number;owner:string;lastUsed:number;expiresAt:number;executing:number;unknown:boolean;membership?:string};
+export const UNKNOWN_LEASE_MS=60_000;
+const UNKNOWN_CHECK_LIMIT=3;
+export type ExecutionReceipt={requestId:string;tool:string;root:string;tabId:number;membershipId:string;upstream:PageExecution};
+type UnknownCheck={expiresAt:number;attempts:number;receipt?:ExecutionReceipt};
+export type Lease={version:number;owner:string;lastUsed:number;expiresAt:number;executing:number;unknown:boolean;membership?:string;unknownCheck?:UnknownCheck};
 export class PageLeases {
   private rows=new Map<string,Lease>();
   private memberships=new Map<string,string>();
   constructor(private now=()=>Date.now()){}
-  load(rows:Record<string,Lease>={}){for(const [key,row] of Object.entries(rows))this.rows.set(key,{...row,unknown:row.unknown||row.executing>0,executing:0});}
+  load(rows:Record<string,Lease>={}){
+    let initialized=false;
+    for(const [key,row] of Object.entries(rows)){
+      const unknown=row.unknown||row.executing>0;
+      const unknownCheck=unknown?(row.unknownCheck??{expiresAt:this.now()+UNKNOWN_LEASE_MS,attempts:0}):undefined;
+      if(unknown&&!row.unknownCheck)initialized=true;
+      this.rows.set(key,{...row,unknown,executing:0,unknownCheck});
+    }
+    return initialized;
+  }
   snapshot(){return Object.fromEntries(this.rows);}
   bind(key:string,membership:string){
     const row=this.rows.get(key),previous=row?.membership??this.memberships.get(key);
@@ -16,7 +30,7 @@ export class PageLeases {
   }
   rebind(token:{key:string;version:number;owner:string},membership:string){
     this.validate(token);const row=this.rows.get(token.key)!;
-    if(row.unknown)throw new OperationError('PAGE_EXECUTION_UNKNOWN',{outcome:'UNKNOWN',nextAction:'reconcile_execution_before_releasing'});
+    if(row.unknown)throw new OperationError('PAGE_EXECUTION_UNKNOWN',{outcome:'UNKNOWN',nextAction:'wait_3_minutes_then_list_pages'});
     if(row.executing!==1)throw new OperationError('PAGE_REFERENCE_EXPIRED',{outcome:'UNKNOWN',nextAction:'list_pages_then_read_fresh_state'});
     // A successful explicit move transfers its still-held target grant. A list
     // may already have observed the new membership and invalidated the old one.
@@ -28,12 +42,12 @@ export class PageLeases {
     const row=this.rows.get(key);
     if(!row)return {visible:true,version:1,status:LeaseStatus.AVAILABLE};
     if(this.available(row))return {visible:true,version:row.version+1,status:LeaseStatus.AVAILABLE};
-    return {visible:row.owner===caller,version:row.version,status:row.unknown?LeaseStatus.UNKNOWN:LeaseStatus.OWNED,expiresAt:row.expiresAt};
+    return {visible:row.owner===caller,version:row.version,status:row.unknown?LeaseStatus.UNKNOWN:LeaseStatus.OWNED,expiresAt:row.unknownCheck?.expiresAt??row.expiresAt};
   }
   begin(key:string,caller:string,version:number){
     const old=this.rows.get(key),view=this.view(key,caller);
     if(old?.executing&&old.expiresAt===0)throw new OperationError('PAGE_OPERATION_IN_PROGRESS',{outcome:'NOT_STARTED'});
-    if(old?.unknown)throw new OperationError('PAGE_EXECUTION_UNKNOWN',{outcome:'UNKNOWN',nextAction:'reconcile_execution_before_releasing'});
+    if(old?.unknown)throw new OperationError('PAGE_EXECUTION_UNKNOWN',{outcome:'UNKNOWN',nextAction:'wait_3_minutes_then_list_pages'});
     if(!view.visible)throw new OperationError('PAGE_LEASE_BUSY',{outcome:'NOT_STARTED',nextAction:'list_pages'});
     if(view.version!==version)throw new OperationError('PAGE_LEASE_EXPIRED',{outcome:'NOT_STARTED',nextAction:'list_pages_then_read_fresh_state'});
     const now=this.now();
@@ -45,14 +59,30 @@ export class PageLeases {
     const row=this.rows.get(token.key);
     if(!row||row.version!==token.version||row.owner!==token.owner)throw new OperationError('PAGE_REFERENCE_EXPIRED',{outcome:'UNKNOWN',nextAction:'list_pages_then_read_fresh_state'});
   }
-  finish(token:{key:string;version:number;owner:string},unknown=false){
+  finish(token:{key:string;version:number;owner:string},unknown=false,receipt?:ExecutionReceipt){
     const row=this.rows.get(token.key);if(!row||row.version!==token.version||row.owner!==token.owner)return;
-    row.executing=Math.max(0,row.executing-1);row.unknown||=unknown;
+    row.executing=Math.max(0,row.executing-1);
+    if(unknown&&!row.unknown){
+      row.unknown=true;
+      row.unknownCheck={expiresAt:this.now()+UNKNOWN_LEASE_MS,attempts:0,receipt};
+    }
+  }
+  completeUnknownCheck(key:string,check:UnknownCheck,terminated:boolean){
+    const row=this.rows.get(key);
+    if(!row?.unknown||row.executing||row.unknownCheck!==check)return;
+    const attempts=check.attempts+1;
+    if(!terminated&&attempts<UNKNOWN_CHECK_LIMIT){
+      row.unknownCheck={...check,attempts,expiresAt:this.now()+UNKNOWN_LEASE_MS};
+      return 'execution_check_unknown';
+    }
+    row.unknown=false;
+    delete row.unknownCheck;
+    return terminated?'execution_reconciled':'execution_protection_expired';
   }
   reconcile(token:{key:string;version:number;owner:string},lastUsed:number){
     this.validate(token);const row=this.rows.get(token.key)!;
     if(!row.unknown||row.executing||row.lastUsed!==lastUsed)throw new Error('EXECUTION_RECONCILE_STATE_CHANGED');
-    row.unknown=false;row.expiresAt=this.now()+LEASE_MS;
+    row.unknown=false;delete row.unknownCheck;row.expiresAt=this.now()+LEASE_MS;
   }
   release(key:string,caller:string,version:number){
     const row=this.rows.get(key);if(!row)return;
