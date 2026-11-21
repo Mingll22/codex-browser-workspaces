@@ -24,7 +24,14 @@ function executionReceipt(error:unknown,root:string,page:Page|undefined,tool:str
 export class Workspaces {
   readonly controllers=new Controllers();
   readonly leases:PageLeases;
-  diagnostics(){return {activeThreads:this.controllers.count,leasedTargets:Object.entries(this.leases.snapshot()).filter(([key])=>this.leases.held(key)).map(([key,lease])=>({targetId:key.slice(key.indexOf('/')+1),expiresAt:lease.unknownCheck?.expiresAt??lease.expiresAt,executing:lease.executing,unknown:lease.unknown}))};}
+  diagnostics(){
+    const connectionsByRoot=new Map<string,number>();
+    for(const thread of this.controllers.attachedThreads()){
+      const {root}=this.actors[thread];
+      connectionsByRoot.set(root,(connectionsByRoot.get(root)??0)+1);
+    }
+    return {activeThreads:this.controllers.count,workspaceMcpConnections:Object.fromEntries(connectionsByRoot),leasedTargets:Object.entries(this.leases.snapshot()).filter(([key])=>this.leases.held(key)).map(([key,lease])=>({targetId:key.slice(key.indexOf('/')+1),expiresAt:lease.unknownCheck?.expiresAt??lease.expiresAt,executing:lease.executing,unknown:lease.unknown}))};
+  }
   private records:Record<string,Workspace>={};
   private actors:Record<string,Actor>={};
   private pages=new Map<string,{root:string;generation:string;page:Page}>();

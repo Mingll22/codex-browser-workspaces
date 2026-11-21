@@ -179,9 +179,16 @@ test('external protection survives removal of source group and later explicit mo
 });
 
 test('broker badge updates do not scan groups while popup is closed; popup counts real membership',async()=>{
- const f=await fixture({toolbar:true}),{page}=await f.open();f.add({groupId:page.groupId});f.calls.length=0;f.api.setSocketOpen();
- await f.api.receiveStatus({observedAt:Date.now(),brokerVersion:'0.4.0',mcpConnections:3,activeThreads:2,leasedTargets:[{targetId:page.targetId,expiresAt:Date.now()+300000,executing:0,unknown:false}]});
+ const f=await fixture({toolbar:true}),{page}=await f.open();f.add({groupId:page.groupId});const idle=await f.open('idle');f.calls.length=0;f.api.setSocketOpen();
+ const snapshot={observedAt:Date.now(),brokerVersion:'0.4.0',mcpConnections:3,activeThreads:2,leasedTargets:[{targetId:page.targetId,expiresAt:Date.now()+300000,executing:0,unknown:false}]};
+ await f.api.receiveStatus({...snapshot,workspaceMcpConnections:{root:2}});
  assert.equal(f.badges.at(-1).text,'3');assert.equal(f.calls.some(call=>call[0]==='query'),false);
  const result=await f.api.status(false);assert.equal(result.connection,'CONNECTED');assert.equal(result.mcpConnections,3);assert.equal(result.workspaces[0].pageCount,2);assert.equal(result.workspaces[0].protectedPages,1);assert.equal(result.workspaces[0].leasedPages,1);
+ assert.deepEqual(Array.from(result.workspaces,row=>[row.groupId,row.mcpConnections]),[[page.groupId,2],[idle.page.groupId,0]]);
  assert.ok(!JSON.stringify(result).includes(page.targetId));
+ await f.api.receiveStatus({...snapshot,observedAt:Date.now()-66000,workspaceMcpConnections:{root:2}});
+ assert.deepEqual(Array.from((await f.api.status(false)).workspaces,row=>row.mcpConnections),[null,null]);
+ await f.api.receiveStatus(snapshot);
+ assert.deepEqual(Array.from((await f.api.status(false)).workspaces,row=>row.mcpConnections),[null,null]);
+ await assert.rejects(f.api.receiveStatus({...snapshot,workspaceMcpConnections:{root:-1}}),/BROKER_STATUS_INVALID/);
 });

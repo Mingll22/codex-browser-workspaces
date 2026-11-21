@@ -50,7 +50,7 @@ function workspaceRow(workspace) {
     }
   });
   const details = textNode('div', 'workspace-details', '');
-  for (const [label, value] of [['页面', workspace.pageCount], ['租用', workspace.leasedPages], ['受保护', workspace.protectedPages]]) {
+  for (const [label, value] of [['页面', workspace.pageCount], ['租用', workspace.leasedPages], ['外部', workspace.protectedPages], ['MCP', workspace.mcpConnections]]) {
     details.append(textNode('span', '', `${label} ${formatCount(value)}`));
   }
   content.append(title, details);

@@ -441,6 +441,8 @@ async function updateBadge(){
 }
 async function receiveStatus(data){
   if(!data||!Number.isFinite(data.observedAt)||!Number.isSafeInteger(data.mcpConnections)||data.mcpConnections<0||!Number.isSafeInteger(data.activeThreads)||data.activeThreads<0||!Array.isArray(data.leasedTargets))throw Error(StatusError.INVALID);
+  const byWorkspace=data.workspaceMcpConnections;
+  if(byWorkspace!==undefined&&(!byWorkspace||typeof byWorkspace!=='object'||Array.isArray(byWorkspace)||Object.values(byWorkspace).some(count=>!Number.isSafeInteger(count)||count<0)))throw Error(StatusError.INVALID);
   brokerStatus=data;lastStatusError=undefined;statusWaiter?.resolve();await updateBadge();
   if(popupPorts.size)chrome.runtime.sendMessage?.({type:'cbw:status',status:await uiStatus(false)}).catch(()=>{});
 }
@@ -455,20 +457,23 @@ async function uiStatus(refresh=false){
     }
     await statusWaiter.promise;
   }
-  const connected=socket?.readyState===WebSocket.OPEN&&!!brokerStatus;
-  const fresh=connected&&Date.now()-brokerStatus.observedAt<65000;
+  const connection=statusConnection();
+  const fresh=connection==='CONNECTED';
+  const snapshot=brokerStatus;
+  const workspaceConnections=fresh?snapshot.workspaceMcpConnections:undefined;
   const error=state.modelVersion!==2?StatusError.MIGRATION:lastStatusError;
-  const result={connection:statusConnection(),observedAt:brokerStatus?.observedAt??null,extensionVersion:chrome.runtime.getManifest().version,brokerVersion:brokerStatus?.brokerVersion,mcpConnections:brokerStatus?.mcpConnections??null,activeThreads:brokerStatus?.activeThreads??null,workspaces:[],...(error?{error}:{})};
+  const result={connection,observedAt:snapshot?.observedAt??null,extensionVersion:chrome.runtime.getManifest().version,brokerVersion:snapshot?.brokerVersion,mcpConnections:snapshot?.mcpConnections??null,activeThreads:snapshot?.activeThreads??null,workspaces:[],...(error?{error}:{})};
   // Serialize only the short Chrome metadata read, never the network wait.
   return enqueue(async()=>{
     const targets=await chrome.debugger.getTargets();
-    for(const ws of Object.values(state.workspaces)){
+    for(const [root,ws] of Object.entries(state.workspaces)){
       const group=await workspaceGroup(ws);if(!group)continue;
       const tabs=await chrome.tabs.query({groupId:group.id});if(!tabs.length)continue;
       const targetIds=tabs.map(tab=>targets.find(target=>target.tabId===tab.id&&target.type==='page')?.id);
-      const leasedPages=targetIds.filter(targetId=>brokerStatus?.leasedTargets.some(lease=>lease.targetId===targetId&&(lease.unknown||lease.executing||lease.expiresAt>Date.now()))).length;
+      const leasedPages=targetIds.filter(targetId=>snapshot?.leasedTargets.some(lease=>lease.targetId===targetId&&(lease.unknown||lease.executing||lease.expiresAt>Date.now()))).length;
       const protectedPages=tabs.filter((tab,index)=>!ws.tabs[tab.id]||ws.tabs[tab.id].protected||state.protectedTargets[targetIds[index]]).length;
-      result.workspaces.push({groupId:group.id,title:group.title,pageCount:tabs.length,leasedPages:fresh?leasedPages:null,protectedPages});
+      const mcpConnections=workspaceConnections?(workspaceConnections[root]??0):null;
+      result.workspaces.push({groupId:group.id,title:group.title,pageCount:tabs.length,leasedPages:fresh?leasedPages:null,protectedPages,mcpConnections});
     }
     return result;
   });
