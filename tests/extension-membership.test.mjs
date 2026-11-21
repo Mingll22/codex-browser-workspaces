@@ -23,6 +23,7 @@ async function fixture({toolbar=false}={}){
    create:async options=>{calls.push(['create',copy(options)]);return add({...options});},
    update:async(id,change)=>{calls.push(['update',id,copy(change)]);const tab=tabs.get(id);if(change.active)for(const t of tabs.values())if(t.windowId===tab.windowId)t.active=false;Object.assign(tab,change);return copy(tab);},
    group:async options=>{calls.push(['group',copy(options)]);const id=options.groupId??nextGroup++;if(!groups.has(id))groups.set(id,{id,windowId:options.createProperties.windowId,title:'',color:'grey',collapsed:false});for(const tabId of [options.tabIds].flat())tabs.get(tabId).groupId=id;return id;},
+   ungroup:async id=>{calls.push(['ungroup',id]);const tab=tabs.get(id),groupId=tab.groupId;tab.groupId=-1;if(![...tabs.values()].some(t=>t.groupId===groupId))groups.delete(groupId);},
    move:async(id,options)=>{calls.push(['move',id,copy(options)]);Object.assign(tabs.get(id),options,{groupId:-1});return getTab(id);},
    remove:async id=>{calls.push(['remove',id]);tabs.delete(id);},
   },
@@ -75,6 +76,24 @@ test('active metadata is scoped to last ordinary window and move preserves origi
  assert.equal(moved.page.tabId,tab.id);assert.equal(moved.page.url,tab.url);assert.equal(moved.page.canClose,false);assert.equal(moved.page.slot,null);assert.equal(moved.page.active,true);
  assert.equal(f.calls.filter(c=>c[0]==='create').length,0);
  const opened=await f.open();assert.notEqual(opened.page.tabId,tab.id);assert.equal(f.tabs.get(tab.id).url,tab.url);
+});
+
+test('automatic ungroup keeps the exact protected tab in its window and removes its empty group',async()=>{
+ const f=await fixture(),tab=f.add({active:true});
+ const {page,generation}=await f.call('move_tab_to_workspace',{threadId:'root',tabId:tab.id,targetId:tab.targetId,title:'Workspace'});
+ const args={threadId:'root',generation,...page};
+ await assert.rejects(f.call('ungroup',{...args,generation:'old'}),/WORKSPACE_RESTORE_REQUIRED/);
+ await assert.rejects(f.call('ungroup',{...args,membershipId:'old'}),/PAGE_NOT_OWNED/);
+ await f.call('retain',{...args,retained:true});
+ await assert.rejects(f.call('ungroup',args),/PAGE_UNGROUP_NOT_ALLOWED/);
+ await f.call('retain',{...args,retained:false});
+ f.calls.length=0;
+ await f.call('ungroup',args);
+ assert.deepEqual(f.tabs.get(tab.id),tab);
+ assert.equal(f.groups.has(page.groupId),false);
+ assert.deepEqual(f.calls,[['get',tab.id],['get',tab.id],['ungroup',tab.id]]);
+ await assert.rejects(f.call('check',args),/PAGE_NOT_OWNED/);
+ assert.equal((await f.call('list',{threadId:'root'})).workspace.status,'EMPTY');
 });
 
 test('move refuses another managed group and does not change user colors',async()=>{

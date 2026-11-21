@@ -325,7 +325,19 @@ async function handleCore(method,args) {
     }
     return {generation:state.generation};
   }
+  if(method==='ungroup'){
+    if(args.generation!==state.generation)fail('WORKSPACE_RESTORE_REQUIRED');
+    const own=await checkedPage(args);
+    if(own.canClose||own.retained)fail('PAGE_UNGROUP_NOT_ALLOWED');
+    const tab=await chrome.tabs.get(own.tabId);
+    if(tab.groupId!==own.groupId)missingPage(args.threadId,args.targetId);
+    await mutate(()=>chrome.tabs.ungroup(own.tabId));
+    revoke(args.threadId,String(own.tabId),'LEFT_GROUP');
+    await save();
+    return {generation:state.generation};
+  }
   if(method==='close'||method==='retain'||method==='check') {
+    if(args.generation!==undefined&&args.generation!==state.generation)fail('WORKSPACE_RESTORE_REQUIRED');
     const own=await checkedPage(args);
     if(method==='close') {
       if(!own.canClose)fail('PAGE_CLOSE_PROTECTED');

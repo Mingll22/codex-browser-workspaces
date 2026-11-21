@@ -38,6 +38,7 @@ const extensionVersion=JSON.parse(await readFile(join(source,'packages/extension
 const healthURL=config.pairing.url.replace('ws:','http:')+'/health';
 const oldVersion=JSON.parse(await readFile(join(destination,'package.json'),'utf8')).version;
 const rpc=new Rpc(config.socket);await rpc.ready;
+let restartedRpc;
 let staged,activated=false,stopped=false,extensionCopied=false,reloaded=false,stateStaged=false;
 const rollbackPlan=join(stateDir,`rollback-family-${stamp}.json`);
 const extensionBackup=extensionDir+'-backup-'+stamp;
@@ -73,6 +74,8 @@ try{
  // while the WSL port is down may leave Chrome's initial WebSocket connecting.
  const listenerDeadline=Date.now()+15000;
  while(true){try{const health=await (await fetch(healthURL,{signal:AbortSignal.timeout(1000)})).json();if(health.adapter===version)break;}catch{}if(Date.now()>listenerDeadline)throw Error('BROKER_LISTENER_NOT_READY');await new Promise(r=>setTimeout(r,100));}
+ restartedRpc=new Rpc(config.socket);await restartedRpc.ready;
+ await restartedRpc.call('maintenance',{enabled:true});
  if(!adapterOnly){
   await run(process.execPath,['scripts/reload-own-extension.mjs',anchor]);reloaded=true;
   // Resolve the new MV3 worker through official MCP before waiting on its socket.
@@ -103,5 +106,5 @@ try{
  }
  process.exitCode=1;
 }finally{
- rpc.close();report.finishedAt=new Date().toISOString();await mkdir(resolve(reportPath,'..'),{recursive:true});await writeFile(reportPath,JSON.stringify(report,null,2)+'\n',{mode:0o600});console.log('Upgrade report:',reportPath);
+ restartedRpc?.close();rpc.close();report.finishedAt=new Date().toISOString();await mkdir(resolve(reportPath,'..'),{recursive:true});await writeFile(reportPath,JSON.stringify(report,null,2)+'\n',{mode:0o600});console.log('Upgrade report:',reportPath);
 }

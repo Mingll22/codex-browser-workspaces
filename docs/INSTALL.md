@@ -86,7 +86,7 @@ Reconnect the MCP client. Open a disposable page, list only that thread's pages,
 
 One real spawn family shares one group; each actual caller owns its own page leases. A list does not claim or renew. Page reads/operations grant five minutes; expired grants require a newly listed handle and fresh page state. Executing or UNKNOWN calls remain occupied past expiry. `release_page` releases an idle known lease, without closing the page or making external work disposable. There is no perpetual heartbeat.
 
-The existing `closedThreadGraceMs` default remains 30000. Cleanup considers every registered family actor separately, including live disconnected processes. One child ending cannot clear a live family. Cleanup also skips retained, protected, leased, executing and UNKNOWN pages. Optional `detachedTtlMs` remains null. Historical groups without process evidence are preserved. Reconnect clients after upgrade to register their actual processes and refresh the tool schemas.
+The existing `closedThreadGraceMs` default remains 30000. Cleanup considers every registered family actor separately, including live disconnected processes. One child ending cannot clear a live family. Eligible protected pages are ungrouped in place and stay open. Retained, leased, executing and UNKNOWN pages stay grouped while those conditions apply. Optional `detachedTtlMs` remains null. Historical groups without process evidence are preserved. Reconnect clients after upgrade to register their actual processes and refresh the tool schemas.
 
 ## Source upgrades
 
