@@ -98,8 +98,10 @@ try{
  assert.deepEqual(await present(ra),{tab:false,group:false});assert.deepEqual(await present(rb),{tab:true,group:true});
  await until(async()=>!(await present(rd)).tab);
  assert.deepEqual(await present(rc),{tab:true,group:true});assert.equal((await present(rd)).tab,false);
- assert.equal((await present(externalReceipt)).tab,true);assert.equal(controllerExited(initial[b].owner),false);
- pass('released disposable pages close while retained, independently protected external and another live root survive');
+ const externalTab=await ext.evaluate(`async()=>{const target=(await chrome.debugger.getTargets()).find(t=>t.id===${JSON.stringify(externalReceipt.targetId)});if(!target)return null;const tab=await chrome.tabs.get(target.tabId);return {tabId:tab.id,groupId:tab.groupId,windowId:tab.windowId,url:tab.url};}`);
+ assert.deepEqual(externalTab,{tabId:externalReceipt.tabId,groupId:-1,windowId:rc.windowId,url:'about:blank'});
+ assert.equal(controllerExited(initial[b].owner),false);
+ pass('disposable pages close, external pages stay open outside the group, and retained and live pages stay grouped');
  // A fourth real persisted fixture ID replaces the old synthetic identity.
  // End its host controller before testing the harness-owned raw RPC lifetime.
  const id=await start(),hostOwner=(await ledger()).actors[id].owner;evidence.processes.d=hostOwner;

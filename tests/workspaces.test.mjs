@@ -67,6 +67,7 @@ class FakeBridge {
   const page=pages.find(page=>page.tabId===a.tabId&&page.targetId===a.targetId&&page.groupId===this.groups.get(a.threadId)?.id);
   if(!page)throw new Error('PAGE_NOT_OWNED');
   if(a.membershipId&&a.membershipId!==page.membershipId)throw new Error('PAGE_REFERENCE_EXPIRED');
+  if(method==='ungroup'){assert.equal(a.generation,this.generation);assert.equal(page.canClose,false);assert.equal(page.retained,false);this.leave(a.threadId,page);}
   if(method==='close'){if(!page.canClose)throw new Error('PAGE_CLOSE_PROTECTED');this.leave(a.threadId,page,{close:true});}
   if(method==='retain')page.retained=a.retained;
   if(method==='prepare_capture')return {generation:this.generation,token:'capture-'+a.threadId};
@@ -469,14 +470,56 @@ test('child exit cannot collect its root family while the parent is attached or 
  await ws.detach('root-connection');clock.advance(LEASE_MS*2);await ws.collect(clock.now());assert.equal(bridge.rows.get('root').length,1);
 });
 
-test('root cleanup waits for exit, grace and page lease, then skips retained and external pages',async t=>{
+test('root cleanup waits for exit, grace and leases, then closes disposable pages and ungroups external pages',async t=>{
  const {ws,bridge,clock}=await setup(t,{maxTabs:3});
  const retained=unwrap(await ws.call('c','a','open_page',{url:'about:blank',slot:'retained'},exitedOwner()));
  await ws.call('c','a','set_page_retention',{pageId:retained.pageId,retained:true},exitedOwner());
- await ws.call('c','a','open_page',{url:'about:blank',slot:'disposable'},exitedOwner());const external=bridge.create('a',{source:'external'});await ws.detach('c');
+ await ws.call('c','a','open_page',{url:'about:blank',slot:'disposable'},exitedOwner());const external=bridge.create('a',{source:'external'});
+ const listed=unwrap(await ws.call('c','a','list_pages',{},exitedOwner()));
+ await ws.call('c','a','take_snapshot',{pageId:listed.pages[2].pageId},exitedOwner());await ws.detach('c');
  await ws.collect(clock.now());clock.advance(29999);await ws.collect(clock.now());assert.equal(bridge.rows.get('a').length,3);
  clock.advance(1);await ws.collect(clock.now());assert.equal(bridge.rows.get('a').length,3);
- clock.advance(LEASE_MS);await ws.collect(clock.now());assert.deepEqual(bridge.rows.get('a').map(page=>page.tabId),[1,external.tabId]);assert.equal(bridge.groups.has('a'),true);
+ clock.advance(LEASE_MS);await ws.collect(clock.now());assert.deepEqual(bridge.rows.get('a').map(page=>page.tabId),[1]);assert.equal(bridge.groups.has('a'),true);
+ assert.equal(bridge.tabs.get(external.tabId),external);assert.equal(external.groupId,-1);
+});
+
+test('legacy completed cleanup revisits only current-generation groups and preserves explicit retention',async t=>{
+ const {ws,bridge,clock,make,stateFile}=await setup(t);
+ for(const root of ['current','historical']){
+  await ws.call(root,root,'list_pages',{},exitedOwner());await ws.detach(root);
+ }
+ const external=bridge.create('current',{source:'external'});
+ const retained=bridge.create('current',{source:'external',retained:true});
+ const historical=bridge.create('historical',{source:'external'});
+ const state=JSON.parse(await readFile(stateFile,'utf8'));
+ state.workspaces.current.cleanupDone=true;
+ state.workspaces.historical.generation='old-session';
+ for(const actor of Object.values(state.actors))actor.closedAt=clock.now();
+ await writeFile(stateFile,JSON.stringify(state));clock.advance(LEASE_MS);
+ const upgraded=make();await upgraded.load();await upgraded.collect(clock.now());
+ assert.equal(external.groupId,-1);assert.equal(bridge.tabs.get(external.tabId),external);
+ assert.deepEqual(bridge.rows.get('current'),[retained]);assert.deepEqual(bridge.rows.get('historical'),[historical]);
+ const persisted=JSON.parse(await readFile(stateFile,'utf8'));
+ assert.equal(persisted.workspaces.current.cleanupDone,'protected-released');
+ assert.equal(persisted.workspaces.historical.generation,'old-session');
+});
+
+test('a newly attached family child during listing cancels automatic ungroup',async t=>{
+ const {ws,bridge,clock}=await setup(t,{families:{child:'root'}});
+ await ws.call('root','root','list_pages',{},exitedOwner());await ws.detach('root');
+ const external=bridge.create('root',{source:'external'});
+ await ws.collect(clock.now());clock.advance(LEASE_MS);
+ const listed=deferred(),finish=deferred(),request=bridge.request.bind(bridge);
+ let pause=true;
+ bridge.request=async(method,args)=>{
+  if(pause&&method==='list'){pause=false;listed.resolve();await finish.promise;}
+  return request(method,args);
+ };
+ const collecting=ws.collect(clock.now());await listed.promise;
+ await ws.call('child','child','list_pages',{},liveOwner());
+ finish.resolve();await collecting;
+ assert.deepEqual(bridge.rows.get('root'),[external]);
+ assert.equal(bridge.requests.filter(r=>r.method==='ungroup').length,0);
 });
 
 test('reconnect preserves the exact page and cancels process-exit cleanup',async t=>{
@@ -565,7 +608,7 @@ test('current membership revokes an idle prior grant even when broker missed the
  const again=unwrap(await restored.call('new','a','list_pages',{}));assert.equal(again.pages.length,1);await restored.call('new','a','take_snapshot',{pageId:again.pages[0].pageId});
 });
 
-test('completed cleanup stops rescanning protected or retained groups until their family reconnects',async t=>{
+test('completed cleanup stops rescanning retained groups until their family reconnects',async t=>{
  const {ws,bridge,clock}=await setup(t,{ttl:1000});const page=unwrap(await ws.call('a','a','open_page',{url:'about:blank'}));
  await ws.call('a','a','set_page_retention',{pageId:page.pageId,retained:true});await ws.call('a','a','release_page',{pageId:page.pageId});
  bridge.create('a',{source:'external'});await ws.detach('a');clock.advance(LEASE_MS*2);await ws.collect(clock.now());

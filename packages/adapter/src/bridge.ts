@@ -75,7 +75,7 @@ export class Bridge {
     if(!this.socket||this.socket.readyState!==WebSocket.OPEN)return Promise.reject(new Error('BRIDGE_DISCONNECTED'));
     const id=randomUUID(),socket=this.socket,op=operations.getStore();
     const deadline=Math.min(Date.now()+15000,op?.deadline??Infinity);
-    if(['open','move_tab_to_workspace','close','retain','title','adopt_popup','prepare_capture','finish_capture'].includes(method))dispatched();
+    if(['open','move_tab_to_workspace','close','ungroup','retain','title','adopt_popup','prepare_capture','finish_capture'].includes(method))dispatched();
     return new Promise((resolve,reject)=>{
       const cleanup=()=>{clearTimeout(timer);op?.signal.removeEventListener('abort',abort);this.pending.delete(id);};
       const cancel=(code:string)=>{if(socket.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'cancel',id}));cleanup();reject(new OperationError(code,{outcome:op?.dispatched?'UNKNOWN':'NOT_STARTED',nextAction:'inspect_page_before_retry'}));};

@@ -12,7 +12,7 @@ import {PageLeases,type ExecutionReceipt,type Lease} from './leases.js';
 import type {Journal} from './journal.js';
 export interface ExecutionRecovery {root:string;pageId:string;requestId:string;tool:string;lastUsed:number;closePage:boolean;upstreamPid:number}
 interface Actor {root:string;detachedAt:number|null;owner?:ControllerProcess;closedAt?:number}
-interface Workspace {generation:string;closePending?:string;cleanupDone?:boolean}
+interface Workspace {generation:string;closePending?:string;cleanupDone?:true|'protected-released'}
 interface ThreadDirectory {resolveRoot(caller:string):string;displayTitle(root:string,cwd?:string):string}
 export const textResult=(value:unknown):CallToolResult=>({content:[{type:'text',text:JSON.stringify(value)}]});
 function executionReceipt(error:unknown,root:string,page:Page|undefined,tool:string):ExecutionReceipt|undefined{
@@ -237,26 +237,38 @@ export class Workspaces {
     if(this.ttlMs===null&&this.closedThreadGraceMs===null)return;
     const errors:unknown[]=[];
     for(const root of Object.keys(this.records))try{await this.lock('family:'+root,async()=>{
-      if(this.records[root].cleanupDone)return;
+      const record=this.records[root];
+      // Old browser sessions still need explicit reset when a caller resumes.
+      // They have no current ownership for background cleanup.
+      if(record.generation!==this.bridge.generation||record.cleanupDone==='protected-released')return;
       // A child may be the family's first browser caller. Its exit cannot prove
       // an unregistered root controller has ended; preserve that family.
       if(!this.actors[root])return;
-      const actors=Object.entries(this.actors).filter(([,actor])=>actor.root===root);if(!actors.length)return;
+      const actors=new Map(Object.entries(this.actors).filter(([,actor])=>actor.root===root));if(!actors.size)return;
       for(const [caller,actor] of actors){
         if(this.controllers.attached(caller)||actor.detachedAt===null)return;
         if(actor.owner){if(!controllerExited(actor.owner))return;if(actor.closedAt===undefined){actor.closedAt=now;await this.persist();return;}if(this.closedThreadGraceMs!==null&&now-actor.closedAt<this.closedThreadGraceMs)return;}
         else if(this.ttlMs===null||now-actor.detachedAt<this.ttlMs)return;
       }
-      const {generation,pages}=await this.listing(root),record=this.records[root];
+      // Calls can register a new or replacement actor while a Chrome read is pending.
+      const reattached=()=>Object.entries(this.actors).some(([caller,actor])=>actor.root===root&&(actor!==actors.get(caller)||this.controllers.attached(caller)));
+      const {generation,pages}=await this.listing(root);
       if(record.closePending&&pages.some(page=>page.targetId===record.closePending))return;delete record.closePending;
       for(const page of pages){
-        if(actors.some(([caller])=>this.controllers.attached(caller)))return;
-        if(page.retained||page.canClose===false||this.leases.held(this.key(root,generation,page)))continue;
-        try{await this.bridge.request('close',{threadId:root,tabId:page.tabId,targetId:page.targetId,membershipId:page.membershipId});this.leases.invalidate(this.key(root,generation,page));}
+        if(reattached())return;
+        const key=this.key(root,generation,page);
+        if(page.retained||this.leases.held(key))continue;
+        const args={threadId:root,generation,tabId:page.tabId,targetId:page.targetId,membershipId:page.membershipId};
+        if(page.canClose===false){
+          await this.bridge.request('ungroup',args);
+          this.leases.invalidate(key);
+          continue;
+        }
+        try{await this.bridge.request('close',args);this.leases.invalidate(key);}
         catch(error:any){if(error.message!=='BRIDGE_DISCONNECTED')record.closePending=page.targetId;await this.persist();throw error;}
       }
       const remaining=(await this.listing(root)).pages;
-      if(remaining.every(page=>page.retained||page.canClose===false))record.cleanupDone=true;
+      if(!reattached()&&remaining.every(page=>page.retained))record.cleanupDone='protected-released';
       await this.persist();
     });}catch(error){errors.push(error);}
     if(errors.length)throw errors[0];
