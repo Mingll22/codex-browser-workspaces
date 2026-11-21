@@ -522,6 +522,18 @@ test('a newly attached family child during listing cancels automatic ungroup',as
  assert.equal(bridge.requests.filter(r=>r.method==='ungroup').length,0);
 });
 
+test('counts attached MCP connections by root across child calls, switches and disconnects',async t=>{
+ const {ws}=await setup(t,{families:{child:'root'}});
+ await ws.call('main-socket','root','list_pages',{});
+ await ws.call('child-socket','child','list_pages',{});
+ await ws.call('separate-socket','separate','list_pages',{});
+ assert.deepEqual(ws.diagnostics().workspaceMcpConnections,{root:2,separate:1});
+ await ws.call('child-socket','switched','list_pages',{});
+ assert.deepEqual(ws.diagnostics().workspaceMcpConnections,{root:1,switched:1,separate:1});
+ await ws.detach('main-socket');
+ assert.deepEqual(ws.diagnostics().workspaceMcpConnections,{switched:1,separate:1});
+});
+
 test('reconnect preserves the exact page and cancels process-exit cleanup',async t=>{
  const {ws,bridge,clock}=await setup(t,{ttl:1000});
  const page=unwrap(await ws.call('old','a','open_page',{url:'about:blank'},exitedOwner()));await ws.detach('old');

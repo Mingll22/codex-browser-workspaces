@@ -30,6 +30,7 @@ test('the candidate broker publishes safe status and runs expiry checks with bro
   client=new Client({name:'browser-workspace-fixture',version:'1'});
   const transport=new StdioClientTransport({command:process.execPath,args:['dist/adapter/src/stdio.js',config]});
   changed=nextStatus(1);await client.connect(transport);let status=await changed;
+  assert.deepEqual(status.workspaceMcpConnections,{},'an initialized client has no workspace until its first identified browser call');
   if(status.leasedTargets.length)status=await nextStatus(1,data=>data.leasedTargets.length===0);
   const stored=JSON.parse(await readFile(stateFile,'utf8')).leases[target];
   assert.equal(stored.unknown,false);

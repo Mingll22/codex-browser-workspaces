@@ -30,6 +30,7 @@ export class Controllers {
     return thread;
   }
   attached(thread:string){return this.owners.has(thread);}
+  attachedThreads(){return this.owners.keys();}
   get count(){return this.owners.size;}
 }
 const compact=(value:string|undefined|null)=>(value??'').replace(/\s+/gu,' ').trim();
