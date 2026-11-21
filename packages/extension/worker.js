@@ -473,7 +473,7 @@ async function uiStatus(refresh=false){
       const leasedPages=targetIds.filter(targetId=>snapshot?.leasedTargets.some(lease=>lease.targetId===targetId&&(lease.unknown||lease.executing||lease.expiresAt>Date.now()))).length;
       const protectedPages=tabs.filter((tab,index)=>!ws.tabs[tab.id]||ws.tabs[tab.id].protected||state.protectedTargets[targetIds[index]]).length;
       const mcpConnections=workspaceConnections?(workspaceConnections[root]??0):null;
-      result.workspaces.push({groupId:group.id,title:group.title,pageCount:tabs.length,leasedPages:fresh?leasedPages:null,protectedPages,mcpConnections});
+      result.workspaces.push({groupId:group.id,title:group.title,color:group.color,pageCount:tabs.length,leasedPages:fresh?leasedPages:null,protectedPages,mcpConnections});
     }
     return result;
   });

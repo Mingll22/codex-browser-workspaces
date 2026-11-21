@@ -184,6 +184,8 @@ test('broker badge updates do not scan groups while popup is closed; popup count
  await f.api.receiveStatus({...snapshot,workspaceMcpConnections:{root:2}});
  assert.equal(f.badges.at(-1).text,'3');assert.equal(f.calls.some(call=>call[0]==='query'),false);
  const result=await f.api.status(false);assert.equal(result.connection,'CONNECTED');assert.equal(result.mcpConnections,3);assert.equal(result.workspaces[0].pageCount,2);assert.equal(result.workspaces[0].protectedPages,1);assert.equal(result.workspaces[0].leasedPages,1);
+ f.groups.get(page.groupId).color='orange';
+ assert.equal((await f.api.status(false)).workspaces[0].color,'orange');
  assert.deepEqual(Array.from(result.workspaces,row=>[row.groupId,row.mcpConnections]),[[page.groupId,2],[idle.page.groupId,0]]);
  assert.ok(!JSON.stringify(result).includes(page.targetId));
  await f.api.receiveStatus({...snapshot,observedAt:Date.now()-66000,workspaceMcpConnections:{root:2}});

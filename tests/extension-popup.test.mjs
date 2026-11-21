@@ -26,7 +26,7 @@ test('popup handles snapshot, refresh, stale data and accessible full titles', a
   const nodes = Object.fromEntries(ids.map(id => [id, new Element()]));
   globalThis.document = {getElementById: id => nodes[id], createElement: () => new Element()};
   globalThis.window = {innerHeight: 500};
-  let status = {connection: 'CONNECTED', observedAt: 1730000000000, extensionVersion: '0.4.0', brokerVersion: '0.4.0', mcpConnections: 2, activeThreads: 1, workspaces: [{groupId: 1, title: 'Private title', pageCount: 5, leasedPages: 2, protectedPages: 1, mcpConnections: 1}]};
+  let status = {connection: 'CONNECTED', observedAt: 1730000000000, extensionVersion: '0.4.0', brokerVersion: '0.4.0', mcpConnections: 2, activeThreads: 1, workspaces: [{groupId: 1, title: 'Private title', color: 'pink', pageCount: 5, leasedPages: 2, protectedPages: 1, mcpConnections: 1}]};
   const requests = [];
   let listener;
   const connections = [];
@@ -43,6 +43,7 @@ test('popup handles snapshot, refresh, stale data and accessible full titles', a
   assert.deepEqual(rowDetails(),['页面 5','租用 2','外部 1','MCP 1']);
   const title = nodes['workspace-list'].children[0].children[1].children[0];
   assert.equal(title.tabIndex, 0);
+  assert.equal(title.dataset.groupColor, 'pink');
   title.events.focus();
   assert.equal(nodes['workspace-tooltip'].hidden, false);
   assert.equal(nodes['workspace-tooltip'].textContent, 'Private title');
@@ -52,11 +53,12 @@ test('popup handles snapshot, refresh, stale data and accessible full titles', a
   assert.equal(nodes['workspace-tooltip'].hidden, false);
   title.events.mouseleave();
   assert.equal(nodes['workspace-tooltip'].hidden, true);
-  status = {...status, connection: 'STALE',workspaces:status.workspaces.map(row=>({...row,mcpConnections:null}))};
+  status = {...status, connection: 'STALE',workspaces:status.workspaces.map(row=>({...row,color:'green',mcpConnections:null}))};
   await nodes.refresh.events.click();
   assert.deepEqual(requests[1], {type: 'cbw:get_status', refresh: true});
   assert.match(nodes.notice.textContent, /上次数据/);
   assert.equal(rowDetails().at(-1),'MCP —');
+  assert.equal(nodes['workspace-list'].children[0].children[1].children[0].dataset.groupColor, 'green');
   for (const [error, message] of [['BROKER_STATUS_TIMEOUT', 'Broker 状态查询超时'], ['BROKER_STATUS_INVALID', 'Broker 返回的状态无效'], ['STATUS_BROWSER_QUERY_FAILED', '无法读取 Chrome 工作区'], ['WORKSPACE_FAMILY_MIGRATION_REQUIRED', '工作区需要完成迁移']]) {
     listener({type: 'cbw:status', status: {...status, connection: 'ERROR', error}});
     assert.match(nodes.notice.textContent, new RegExp(message));

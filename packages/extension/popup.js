@@ -26,6 +26,7 @@ function workspaceRow(workspace) {
   mark.innerHTML = '<svg viewBox="0 0 20 20"><rect x="3" y="5" width="13" height="11" rx="2"/><path d="M6 5V3h10a2 2 0 0 1 2 2v8h-2M6 9h7"/></svg>';
   const content = textNode('div', 'workspace-content', '');
   const title = textNode('div', 'workspace-title', typeof workspace.title === 'string' && workspace.title.trim() ? workspace.title : '未命名工作区');
+  if (typeof workspace.color === 'string') title.dataset.groupColor = workspace.color;
   title.tabIndex = 0;
   const tooltip = elements['workspace-tooltip'];
   const showTitle = () => {
